@@ -1,0 +1,28 @@
+# Multi-stage build: phoenix-api-server
+# Final image: ~15MiB (distroless/static)
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG DATE=unknown
+
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build \
+      -trimpath \
+      -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
+      -o /phoenix-api-server \
+      ./cmd/api-server/...
+
+# Final: distroless static (smallest possible)
+FROM gcr.io/distroless/static-debian12:nonroot
+
+COPY --from=builder /phoenix-api-server /phoenix-api-server
+
+EXPOSE 8090 8091
+
+ENTRYPOINT ["/phoenix-api-server"]

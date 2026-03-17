@@ -1,0 +1,118 @@
+/* PhoenixGPU Design System
+ * Theme: Dark Industrial Precision
+ * Inspired by high-precision monitoring tools, not generic SaaS
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* ── Core palette ─────────────────────────────────────────── */
+  --bg-base:       #0D0F12;
+  --bg-surface:    #13161B;
+  --bg-elevated:   #1A1E26;
+  --bg-overlay:    #222836;
+  --bg-subtle:     #1E2230;
+
+  /* ── Accent: Amber (GPU heat) ─────────────────────────────── */
+  --amber-dim:     #78450A;
+  --amber-mid:     #D97706;
+  --amber-bright:  #F59E0B;
+  --amber-glow:    #FCD34D;
+
+  /* ── Semantic colors ──────────────────────────────────────── */
+  --green:         #10B981;
+  --green-dim:     #065F46;
+  --red:           #EF4444;
+  --red-dim:       #7F1D1D;
+  --blue:          #3B82F6;
+  --blue-dim:      #1E3A5F;
+  --purple:        #8B5CF6;
+
+  /* ── Text ─────────────────────────────────────────────────── */
+  --text-primary:   #F1F5F9;
+  --text-secondary: #94A3B8;
+  --text-muted:     #475569;
+  --text-amber:     #F59E0B;
+  --text-green:     #10B981;
+  --text-red:       #F87171;
+
+  /* ── Borders ─────────────────────────────────────────────── */
+  --border-dim:    rgba(255,255,255,0.06);
+  --border-mid:    rgba(255,255,255,0.10);
+  --border-bright: rgba(255,255,255,0.18);
+  --border-amber:  rgba(245,158,11,0.30);
+
+  /* ── Typography ──────────────────────────────────────────── */
+  --font-body:  'DM Sans', -apple-system, sans-serif;
+  --font-mono:  'JetBrains Mono', 'Fira Code', monospace;
+
+  /* ── Spacing scale ───────────────────────────────────────── */
+  --sp-1: 4px;   --sp-2: 8px;   --sp-3: 12px;
+  --sp-4: 16px;  --sp-5: 20px;  --sp-6: 24px;
+  --sp-8: 32px;  --sp-10: 40px; --sp-12: 48px;
+
+  /* ── Radii ───────────────────────────────────────────────── */
+  --r-sm: 4px;  --r-md: 6px;  --r-lg: 10px;  --r-xl: 16px;
+
+  /* ── Shadows ─────────────────────────────────────────────── */
+  --shadow-sm:  0 1px 3px rgba(0,0,0,0.4);
+  --shadow-md:  0 4px 12px rgba(0,0,0,0.5);
+  --shadow-amber: 0 0 20px rgba(245,158,11,0.12);
+
+  /* ── Transitions ─────────────────────────────────────────── */
+  --ease-out:  cubic-bezier(0.16, 1, 0.3, 1);
+  --t-fast:    120ms;
+  --t-mid:     220ms;
+  --t-slow:    400ms;
+
+  /* ── Layout ──────────────────────────────────────────────── */
+  --sidebar-w: 220px;
+  --header-h:  56px;
+}
+
+/* ── Reset & base ────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 14px; -webkit-font-smoothing: antialiased; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  line-height: 1.6;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Subtle scanline texture — gives depth without being distracting */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.03) 2px,
+    rgba(0,0,0,0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+a { color: var(--amber-bright); text-decoration: none; }
+a:hover { color: var(--amber-glow); }
+
+/* ── Utility classes ─────────────────────────────────────────── */
+.mono       { font-family: var(--font-mono); }
+.text-amber { color: var(--text-amber); }
+.text-green { color: var(--text-green); }
+.text-red   { color: var(--text-red); }
+.text-muted { color: var(--text-muted); }
+.text-secondary { color: var(--text-secondary); }
+
+/* ── Scrollbar ───────────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-base); }
+::-webkit-scrollbar-thumb { background: var(--bg-overlay); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-bright); }

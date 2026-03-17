@@ -1,0 +1,193 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: phoenixjobs.phoenixgpu.io
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+spec:
+  group: phoenixgpu.io
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: PhoenixJob wraps a GPU training job with automatic Checkpoint/Restore HA.
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required: ["checkpoint", "template"]
+              properties:
+
+                # ── Checkpoint configuration ──────────────────────────
+                checkpoint:
+                  type: object
+                  required: ["storageBackend"]
+                  description: Defines how and when checkpoints are taken.
+                  properties:
+
+                    intervalSeconds:
+                      type: integer
+                      minimum: 60
+                      maximum: 86400
+                      default: 300
+                      description: |
+                        How often (in seconds) to automatically checkpoint the job.
+                        Minimum 60s to avoid I/O storms. Default: 300 (5 minutes).
+
+                    storageBackend:
+                      type: string
+                      enum: ["pvc", "s3", "nfs"]
+                      description: Where to store checkpoint snapshots.
+
+                    pvcName:
+                      type: string
+                      description: |
+                        Name of the PersistentVolumeClaim for snapshot storage.
+                        Required when storageBackend=pvc.
+
+                    s3:
+                      type: object
+                      description: S3-compatible storage config (storageBackend=s3).
+                      properties:
+                        bucket:
+                          type: string
+                        endpoint:
+                          type: string
+                        secretRef:
+                          type: string
+                          description: Name of Secret containing S3 credentials.
+
+                    maxSnapshots:
+                      type: integer
+                      minimum: 1
+                      maximum: 100
+                      default: 5
+                      description: |
+                        Maximum number of snapshots to retain. Oldest are pruned.
+
+                    preDump:
+                      type: boolean
+                      default: false
+                      description: |
+                        Enable pre-dump before full checkpoint to reduce freeze time.
+                        Recommended for large models (>10GiB VRAM).
+
+                # ── Restore policy ────────────────────────────────────
+                restorePolicy:
+                  type: object
+                  properties:
+                    onNodeFailure:
+                      type: string
+                      enum: ["restore", "restart", "fail"]
+                      default: "restore"
+                      description: |
+                        restore: restore from last checkpoint on a healthy node.
+                        restart: restart training from scratch.
+                        fail: mark job as Failed (for debugging).
+
+                    restoreTimeoutSeconds:
+                      type: integer
+                      default: 120
+                      description: Max time to wait for restore before failing over.
+
+                    maxRestoreAttempts:
+                      type: integer
+                      default: 3
+                      description: Max consecutive restore failures before marking job Failed.
+
+                # ── Billing labels ────────────────────────────────────
+                billing:
+                  type: object
+                  description: Cost attribution labels for the billing engine.
+                  properties:
+                    department:
+                      type: string
+                    project:
+                      type: string
+                    costCenter:
+                      type: string
+
+                # ── Pod template ──────────────────────────────────────
+                template:
+                  type: object
+                  description: Standard PodTemplateSpec for the training job.
+                  x-kubernetes-preserve-unknown-fields: true
+
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: ["Pending", "Running", "Checkpointing", "Restoring", "Succeeded", "Failed"]
+
+                lastCheckpointTime:
+                  type: string
+                  format: date-time
+
+                lastCheckpointDir:
+                  type: string
+
+                checkpointCount:
+                  type: integer
+
+                restoreAttempts:
+                  type: integer
+
+                currentPodName:
+                  type: string
+
+                currentNodeName:
+                  type: string
+
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+
+      subresources:
+        status: {}
+
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Checkpoints
+          type: integer
+          jsonPath: .status.checkpointCount
+        - name: LastCheckpoint
+          type: date
+          jsonPath: .status.lastCheckpointTime
+        - name: Node
+          type: string
+          jsonPath: .status.currentNodeName
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+
+  scope: Namespaced
+  names:
+    plural: phoenixjobs
+    singular: phoenixjob
+    kind: PhoenixJob
+    shortNames:
+      - pjob

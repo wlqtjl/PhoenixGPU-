@@ -1,0 +1,52 @@
+# Multi-stage build: phoenix-controller
+# Final image: ~20MiB (distroless)
+# Copyright 2025 PhoenixGPU Authors
+
+# ── Stage 1: Build ────────────────────────────────────────────────
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /build
+
+# Cache dependencies layer separately
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Build binary
+COPY . .
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG DATE=unknown
+
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build \
+      -trimpath \
+      -ldflags="-s -w \
+        -X main.version=${VERSION} \
+        -X main.commit=${COMMIT} \
+        -X main.date=${DATE}" \
+      -o /phoenix-controller \
+      ./cmd/phoenix-controller/...
+
+# ── Stage 2: CRIU runtime ─────────────────────────────────────────
+FROM debian:bookworm-slim AS runtime-base
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    criu \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Stage 3: Final image ──────────────────────────────────────────
+FROM runtime-base
+
+# Non-root user
+RUN useradd -r -u 1000 -g 0 phoenixgpu
+USER 1000
+
+COPY --from=builder /phoenix-controller /usr/local/bin/phoenix-controller
+
+# Snapshot directory
+VOLUME ["/mnt/phoenix-snapshots"]
+
+EXPOSE 8080 8081
+
+ENTRYPOINT ["/usr/local/bin/phoenix-controller"]

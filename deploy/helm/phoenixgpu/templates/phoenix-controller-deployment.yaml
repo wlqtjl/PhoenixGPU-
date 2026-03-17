@@ -1,0 +1,72 @@
+{{- if .Values.phoenixController.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "phoenixgpu.fullname" . }}-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "phoenixgpu.labels" . | nindent 4 }}
+    app.kubernetes.io/component: phoenix-controller
+spec:
+  replicas: {{ .Values.phoenixController.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "phoenixgpu.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: phoenix-controller
+  template:
+    metadata:
+      labels:
+        {{- include "phoenixgpu.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: phoenix-controller
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "8080"
+    spec:
+      serviceAccountName: {{ include "phoenixgpu.fullname" . }}-controller
+      containers:
+        - name: phoenix-controller
+          image: {{ .Values.global.imageRegistry }}/phoenix-controller:{{ .Values.phoenixController.image.tag }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          args:
+            - "--checkpoint-dir={{ .Values.snapshotStorage.pvc.mountPath | default "/mnt/phoenix-snapshots" }}"
+            - "--checkpoint-interval={{ .Values.phoenixController.config.checkpointIntervalSeconds }}"
+            - "--notready-threshold={{ .Values.phoenixController.config.notReadyThresholdSeconds }}"
+            - "--fault-poll-interval={{ .Values.phoenixController.config.faultDetectorPollSeconds }}"
+            - "--max-restore-attempts={{ .Values.phoenixController.config.maxRestoreAttempts }}"
+            - "--restore-timeout={{ .Values.phoenixController.config.restoreTimeoutSeconds }}"
+            - "--metrics-bind-address=:8080"
+            - "--health-probe-bind-address=:8081"
+            - "--leader-elect=true"
+          ports:
+            - name: metrics
+              containerPort: 8080
+              protocol: TCP
+            - name: healthz
+              containerPort: 8081
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: healthz
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.phoenixController.resources | nindent 12 }}
+          {{- if eq .Values.snapshotStorage.backend "pvc" }}
+          volumeMounts:
+            - name: snapshots
+              mountPath: /mnt/phoenix-snapshots
+          {{- end }}
+      {{- if eq .Values.snapshotStorage.backend "pvc" }}
+      volumes:
+        - name: snapshots
+          persistentVolumeClaim:
+            claimName: {{ include "phoenixgpu.fullname" . }}-snapshots
+      {{- end }}
+{{- end }}

@@ -1,0 +1,138 @@
+---
+# API Server Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "phoenixgpu.fullname" . }}-api-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "phoenixgpu.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "phoenixgpu.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api-server
+  template:
+    metadata:
+      labels:
+        {{- include "phoenixgpu.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api-server
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "8091"
+    spec:
+      serviceAccountName: {{ include "phoenixgpu.fullname" . }}-controller
+      containers:
+        - name: api-server
+          image: {{ .Values.global.imageRegistry }}/api-server:{{ default "latest" .Values.apiServer.image.tag }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          args:
+            - "--addr=:8090"
+            - "--metrics-addr=:8091"
+          ports:
+            - name: http
+              containerPort: 8090
+            - name: metrics
+              containerPort: 8091
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { cpu: 300m, memory: 256Mi }
+---
+# WebUI Deployment
+{{- if .Values.webui.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "phoenixgpu.fullname" . }}-webui
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "phoenixgpu.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "phoenixgpu.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: webui
+  template:
+    metadata:
+      labels:
+        {{- include "phoenixgpu.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: webui
+    spec:
+      containers:
+        - name: webui
+          image: {{ .Values.global.imageRegistry }}/webui:{{ .Values.webui.image.tag }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+          resources:
+            requests: { cpu: 20m, memory: 32Mi }
+            limits:   { cpu: 100m, memory: 128Mi }
+{{- end }}
+---
+# Services
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "phoenixgpu.fullname" . }}-api-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "phoenixgpu.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "phoenixgpu.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: api-server
+  ports:
+    - name: http
+      port: 8090
+      targetPort: http
+---
+{{- if .Values.webui.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "phoenixgpu.fullname" . }}-webui
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "phoenixgpu.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.webui.service.type }}
+  selector:
+    {{- include "phoenixgpu.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: webui
+  ports:
+    - name: http
+      port: {{ .Values.webui.service.port }}
+      targetPort: http
+{{- end }}
+---
+# Snapshot PVC
+{{- if and (eq .Values.snapshotStorage.backend "pvc") .Values.snapshotStorage.pvc }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "phoenixgpu.fullname" . }}-snapshots
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "phoenixgpu.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteMany]
+  {{- if .Values.snapshotStorage.pvc.storageClass }}
+  storageClassName: {{ .Values.snapshotStorage.pvc.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.snapshotStorage.pvc.size }}
+{{- end }}

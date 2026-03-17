@@ -1,0 +1,89 @@
+---
+# ServiceAccount for phoenix-controller
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "phoenixgpu.fullname" . }}-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "phoenixgpu.labels" . | nindent 4 }}
+---
+# ClusterRole: controller needs cluster-wide access to Nodes + PhoenixJobs
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "phoenixgpu.fullname" . }}-controller
+  labels:
+    {{- include "phoenixgpu.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["phoenixgpu.io"]
+    resources: ["phoenixjobs", "phoenixjobs/status"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "phoenixgpu.fullname" . }}-controller
+  labels:
+    {{- include "phoenixgpu.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "phoenixgpu.fullname" . }}-controller
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "phoenixgpu.fullname" . }}-controller
+    namespace: {{ .Release.Namespace }}
+---
+# ServiceAccount for device-plugin (needs node-level access)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "phoenixgpu.fullname" . }}-device-plugin
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "phoenixgpu.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "phoenixgpu.fullname" . }}-device-plugin
+  labels:
+    {{- include "phoenixgpu.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/status"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["phoenixgpu.io"]
+    resources: ["phoenixjobs"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "phoenixgpu.fullname" . }}-device-plugin
+  labels:
+    {{- include "phoenixgpu.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "phoenixgpu.fullname" . }}-device-plugin
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "phoenixgpu.fullname" . }}-device-plugin
+    namespace: {{ .Release.Namespace }}

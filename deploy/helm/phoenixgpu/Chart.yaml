@@ -1,0 +1,21 @@
+apiVersion: v2
+name: phoenixgpu
+description: Enterprise-grade GPU Virtualization Platform with Checkpoint/Restore HA
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - gpu
+  - kubernetes
+  - virtualization
+  - checkpoint
+  - machine-learning
+home: https://github.com/wlqtjl/PhoenixGPU-
+sources:
+  - https://github.com/wlqtjl/PhoenixGPU-
+maintainers:
+  - name: PhoenixGPU Authors
+    url: https://github.com/wlqtjl/PhoenixGPU-
+annotations:
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/category: ai-machine-learning

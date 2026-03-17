@@ -1,0 +1,7 @@
+# ── apiServer (add to values.yaml) ───────────────────────────────
+apiServer:
+  image:
+    tag: latest
+
+nameOverride: ""
+fullnameOverride: ""
