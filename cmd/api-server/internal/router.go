@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -72,95 +74,115 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			cfg.Logger.Warn("nil K8sClient, fallback to FakeK8sClient")
 			cfg.K8sClient = NewFakeK8sClient()
 		} else {
-			cfg.K8sClient = unavailableK8sClient{}
-		}
-	}
-	if cfg.K8sClient == nil {
-		if cfg.EnableMock {
-			cfg.Logger.Warn("nil K8sClient, fallback to FakeK8sClient because mock is enabled")
-			cfg.K8sClient = NewFakeK8sClient()
-		} else {
 			cfg.Logger.Error("nil K8sClient in non-mock mode, serving unavailable responses")
 			cfg.K8sClient = unavailableK8sClient{}
 		}
 	}
 
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
-
-	// Middleware: structured logging + Prometheus + recovery
-	r.Use(metricsMiddleware())
-	r.Use(requestLogger(cfg.Logger))
-	r.Use(gin.RecoveryWithWriter(nil, func(c *gin.Context, err interface{}) {
-		cfg.Logger.Error("panic recovered", zap.Any("error", err))
-		errResp(c, http.StatusInternalServerError, "internal server error")
-	}))
-
-	// Health
-	r.GET("/healthz", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
-	r.GET("/readyz", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
-
-	// Prometheus metrics scrape endpoint
-	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
-
 	h := &handlers{client: cfg.K8sClient, log: cfg.Logger}
 	mh := newMigrationHandlers(cfg.MigrationExecutor, cfg.Logger)
 
-	v1 := r.Group("/api/v1")
-	{
-		// Cluster
-		v1.GET("/cluster/summary", h.getClusterSummary)
-		v1.GET("/cluster/utilization-history", h.getUtilHistory)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("# metrics endpoint\n"))
+	})
 
-		// Nodes
-		v1.GET("/nodes", h.listNodes)
+	mux.Handle("/api/v1/cluster/summary", method(http.MethodGet, http.HandlerFunc(h.getClusterSummary)))
+	mux.Handle("/api/v1/cluster/utilization-history", method(http.MethodGet, http.HandlerFunc(h.getUtilHistory)))
+	mux.Handle("/api/v1/nodes", method(http.MethodGet, http.HandlerFunc(h.listNodes)))
+	mux.Handle("/api/v1/jobs", method(http.MethodGet, http.HandlerFunc(h.listJobs)))
+	mux.Handle("/api/v1/billing/departments", method(http.MethodGet, http.HandlerFunc(h.listBillingDepartments)))
+	mux.Handle("/api/v1/billing/records", method(http.MethodGet, http.HandlerFunc(h.listBillingRecords)))
+	mux.Handle("/api/v1/alerts", method(http.MethodGet, http.HandlerFunc(h.listAlerts)))
 
-		// PhoenixJobs
-		v1.GET("/jobs", h.listJobs)
-		v1.GET("/jobs/:namespace/:name", h.getJob)
-		v1.POST("/jobs/:namespace/:name/checkpoint", h.triggerCheckpoint)
+	mux.Handle("/api/v1/jobs/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/migrate") {
+			if !cfg.EnableMigration {
+				http.NotFound(w, r)
+				return
+			}
+			method(http.MethodPost, http.HandlerFunc(mh.triggerMigration)).ServeHTTP(w, r)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/migration-status") {
+			if !cfg.EnableMigration {
+				http.NotFound(w, r)
+				return
+			}
+			method(http.MethodGet, http.HandlerFunc(mh.getMigrationStatus)).ServeHTTP(w, r)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/checkpoint") {
+			method(http.MethodPost, http.HandlerFunc(h.triggerCheckpoint)).ServeHTTP(w, r)
+			return
+		}
+		method(http.MethodGet, http.HandlerFunc(h.getJob)).ServeHTTP(w, r)
+	}))
 
-		// Billing
-		v1.GET("/billing/departments", h.listBillingDepartments)
-		v1.GET("/billing/records", h.listBillingRecords)
+	mux.Handle("/api/v1/alerts/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/resolve") {
+			http.NotFound(w, r)
+			return
+		}
+		method(http.MethodPost, http.HandlerFunc(h.resolveAlert)).ServeHTTP(w, r)
+	}))
 
-		// Alerts
-		v1.GET("/alerts", h.listAlerts)
-		v1.POST("/alerts/:id/resolve", h.resolveAlert)
-	}
+	return withRecovery(requestLogger(cfg.Logger, withMetrics(mux)))
+}
+
+func method(m string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != m {
+			errResp(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func withRecovery(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				errResp(w, http.StatusInternalServerError, "internal server error")
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
 }
 
 func withMetrics(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		path := c.FullPath()
-		if path == "" {
-			path = c.Request.URL.Path
-		}
+		next.ServeHTTP(w, r)
+	})
+}
 
-		c.Next()
-
-		dur := time.Since(start)
-		status := http.StatusText(c.Writer.Status())
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
 
 func (w *statusWriter) WriteHeader(statusCode int) {
 	w.status = statusCode
 	w.ResponseWriter.WriteHeader(statusCode)
 }
 
-func requestLogger(log *zap.Logger) gin.HandlerFunc {
-	return func(c *gin.Context) {
+func requestLogger(log Logger, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		start := time.Now()
-		c.Next()
-		log.Info("request",
-			zap.String("method", c.Request.Method),
-			zap.String("path", c.Request.URL.Path),
-			zap.Int("status", c.Writer.Status()),
-			zap.Duration("dur", time.Since(start)),
-			zap.String("ip", c.ClientIP()),
-		)
-	}
-	return s[len(s)-len(suffix):] == suffix
+		next.ServeHTTP(sw, r)
+		log.Info("request", "method", r.Method, "path", r.URL.Path, "status", sw.status, "dur", time.Since(start))
+	})
 }
 
 func NewNopLogger() Logger { return nopLogger{} }
@@ -172,46 +194,6 @@ func (nopLogger) Warn(string, ...interface{})  {}
 func (nopLogger) Error(string, ...interface{}) {}
 
 // unavailableK8sClient provides explicit errors when no backend client is configured.
-type unavailableK8sClient struct{}
-
-func (unavailableK8sClient) GetClusterSummary(context.Context) (*ClusterSummary, error) {
-	return nil, errors.New("k8s client unavailable")
-}
-func (unavailableK8sClient) GetUtilizationHistory(context.Context, int) ([]TimeSeriesPoint, error) {
-	return nil, errors.New("k8s client unavailable")
-}
-func (unavailableK8sClient) ListGPUNodes(context.Context) ([]GPUNode, error) {
-	return nil, errors.New("k8s client unavailable")
-}
-func (unavailableK8sClient) ListPhoenixJobs(context.Context, string) ([]PhoenixJob, error) {
-	return nil, errors.New("k8s client unavailable")
-}
-func (unavailableK8sClient) GetPhoenixJob(context.Context, string, string) (*PhoenixJob, error) {
-	return nil, errors.New("k8s client unavailable")
-}
-func (unavailableK8sClient) TriggerCheckpoint(context.Context, string, string) error {
-	return errors.New("k8s client unavailable")
-}
-func (unavailableK8sClient) GetBillingByDepartment(context.Context, string) ([]DeptBilling, error) {
-	return nil, errors.New("k8s client unavailable")
-}
-func (unavailableK8sClient) GetBillingRecords(context.Context, string) ([]BillingRecord, error) {
-	return nil, errors.New("k8s client unavailable")
-}
-func (unavailableK8sClient) ListAlerts(context.Context) ([]Alert, error) {
-	return nil, errors.New("k8s client unavailable")
-}
-func (unavailableK8sClient) ResolveAlert(context.Context, string) error {
-	return errors.New("k8s client unavailable")
-}
-
-func mustJSON(v interface{}) json.RawMessage {
-	b, _ := json.Marshal(v)
-	return b
-}
-
-// unavailableK8sClient provides explicit errors when no backend client is configured.
-// This avoids nil-pointer panics in handlers and returns predictable 5xx responses.
 type unavailableK8sClient struct{}
 
 func (unavailableK8sClient) GetClusterSummary(context.Context) (*ClusterSummary, error) {

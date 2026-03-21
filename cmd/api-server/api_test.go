@@ -29,6 +29,17 @@ func newTestServer(t *testing.T) *httptest.Server {
 	return httptest.NewServer(router)
 }
 
+func newTestServerWithMigration(t *testing.T, enable bool) *httptest.Server {
+	t.Helper()
+	router := internal.NewRouter(internal.RouterConfig{
+		K8sClient:       internal.NewFakeK8sClient(),
+		Logger:          internal.NewNopLogger(),
+		EnableMock:      true,
+		EnableMigration: enable,
+	})
+	return httptest.NewServer(router)
+}
+
 // get performs a GET request and asserts status code.
 func get(t *testing.T, srv *httptest.Server, path string, wantStatus int) []byte {
 	t.Helper()

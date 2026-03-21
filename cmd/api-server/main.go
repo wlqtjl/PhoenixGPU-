@@ -23,6 +23,7 @@ var (
 
 type opts struct {
 	addr            string
+	metricsAddr     string
 	mock            bool
 	enableMigration bool
 }
@@ -30,6 +31,7 @@ type opts struct {
 func main() {
 	o := &opts{}
 	flag.StringVar(&o.addr, "addr", ":8090", "HTTP listen address")
+	flag.StringVar(&o.metricsAddr, "metrics-addr", "", "Legacy metrics listen address flag (accepted for backward compatibility; currently unused)")
 	flag.BoolVar(&o.mock, "mock", false, "Use fake data")
 	flag.BoolVar(&o.enableMigration, "enable-migration", false, "Enable migration APIs")
 	showVersion := flag.Bool("version", false, "Print version and exit")
