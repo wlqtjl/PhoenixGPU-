@@ -16,7 +16,7 @@ import (
 	"go.uber.org/zap"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap" as ctrlzap
+	ctrlzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/wlqtjl/PhoenixGPU/pkg/checkpoint"
 	"github.com/wlqtjl/PhoenixGPU/pkg/hacontroller"
