@@ -22,21 +22,9 @@ import (
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	router := internal.NewRouter(internal.RouterConfig{
-		K8sClient:       internal.NewFakeK8sClient(),
-		Logger:          internal.NewNopLogger(),
-		EnableMock:      true,
-		EnableMigration: false,
-	})
-	return httptest.NewServer(router)
-}
-
-func newTestServerWithMigration(t *testing.T, enabled bool) *httptest.Server {
-	t.Helper()
-	router := internal.NewRouter(internal.RouterConfig{
-		K8sClient:       internal.NewFakeK8sClient(),
-		Logger:          internal.NewNopLogger(),
-		EnableMock:      true,
-		EnableMigration: enabled,
+		K8sClient:  internal.NewFakeK8sClient(),
+		Logger:     internal.NewNopLogger(),
+		EnableMock: true,
 	})
 	return httptest.NewServer(router)
 }

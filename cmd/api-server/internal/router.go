@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"net/http"
 	"time"
 )
@@ -76,95 +75,90 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			cfg.K8sClient = unavailableK8sClient{}
 		}
 	}
+	if cfg.K8sClient == nil {
+		if cfg.EnableMock {
+			cfg.Logger.Warn("nil K8sClient, fallback to FakeK8sClient because mock is enabled")
+			cfg.K8sClient = NewFakeK8sClient()
+		} else {
+			cfg.Logger.Error("nil K8sClient in non-mock mode, serving unavailable responses")
+			cfg.K8sClient = unavailableK8sClient{}
+		}
+	}
+
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+
+	// Middleware: structured logging + Prometheus + recovery
+	r.Use(metricsMiddleware())
+	r.Use(requestLogger(cfg.Logger))
+	r.Use(gin.RecoveryWithWriter(nil, func(c *gin.Context, err interface{}) {
+		cfg.Logger.Error("panic recovered", zap.Any("error", err))
+		errResp(c, http.StatusInternalServerError, "internal server error")
+	}))
+
+	// Health
+	r.GET("/healthz", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+	r.GET("/readyz", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+
+	// Prometheus metrics scrape endpoint
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
 	h := &handlers{client: cfg.K8sClient, log: cfg.Logger}
 	mh := newMigrationHandlers(cfg.MigrationExecutor, cfg.Logger)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
+	v1 := r.Group("/api/v1")
+	{
+		// Cluster
+		v1.GET("/cluster/summary", h.getClusterSummary)
+		v1.GET("/cluster/utilization-history", h.getUtilHistory)
 
-	mux.HandleFunc("/api/v1/cluster/summary", method(http.MethodGet, h.getClusterSummary))
-	mux.HandleFunc("/api/v1/cluster/utilization-history", method(http.MethodGet, h.getUtilHistory))
-	mux.HandleFunc("/api/v1/nodes", method(http.MethodGet, h.listNodes))
-	mux.HandleFunc("/api/v1/jobs", method(http.MethodGet, h.listJobs))
-	mux.HandleFunc("/api/v1/billing/departments", method(http.MethodGet, h.listBillingDepartments))
-	mux.HandleFunc("/api/v1/billing/records", method(http.MethodGet, h.listBillingRecords))
-	mux.HandleFunc("/api/v1/alerts", method(http.MethodGet, h.listAlerts))
+		// Nodes
+		v1.GET("/nodes", h.listNodes)
 
-	// dynamic routes
-	mux.HandleFunc("/api/v1/jobs/", func(w http.ResponseWriter, r *http.Request) {
-		if stringsHasSuffix(r.URL.Path, "/migrate") {
-			if !cfg.EnableMigration {
-				http.NotFound(w, r)
-				return
-			}
-			method(http.MethodPost, mh.triggerMigration)(w, r)
-			return
-		}
-		if stringsHasSuffix(r.URL.Path, "/migration-status") {
-			if !cfg.EnableMigration {
-				http.NotFound(w, r)
-				return
-			}
-			method(http.MethodGet, mh.getMigrationStatus)(w, r)
-			return
-		}
-		if stringsHasSuffix(r.URL.Path, "/checkpoint") {
-			method(http.MethodPost, h.triggerCheckpoint)(w, r)
-			return
-		}
-		method(http.MethodGet, h.getJob)(w, r)
-	})
-	mux.HandleFunc("/api/v1/alerts/", func(w http.ResponseWriter, r *http.Request) {
-		if stringsHasSuffix(r.URL.Path, "/resolve") {
-			method(http.MethodPost, h.resolveAlert)(w, r)
-			return
-		}
-		http.NotFound(w, r)
-	})
+		// PhoenixJobs
+		v1.GET("/jobs", h.listJobs)
+		v1.GET("/jobs/:namespace/:name", h.getJob)
+		v1.POST("/jobs/:namespace/:name/checkpoint", h.triggerCheckpoint)
 
-	return withMetrics(mux)
-}
+		// Billing
+		v1.GET("/billing/departments", h.listBillingDepartments)
+		v1.GET("/billing/records", h.listBillingRecords)
 
-func method(want string, next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != want {
-			w.Header().Set("Allow", want)
-			errResp(w, http.StatusMethodNotAllowed, "method not allowed")
-			return
-		}
-		next(w, r)
+		// Alerts
+		v1.GET("/alerts", h.listAlerts)
+		v1.POST("/alerts/:id/resolve", h.resolveAlert)
 	}
 }
 
 func withMetrics(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		rw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
-		next.ServeHTTP(rw, r)
-		_ = start
-	})
-}
+		path := c.FullPath()
+		if path == "" {
+			path = c.Request.URL.Path
+		}
 
-type statusWriter struct {
-	http.ResponseWriter
-	status int
-}
+		c.Next()
+
+		dur := time.Since(start)
+		status := http.StatusText(c.Writer.Status())
 
 func (w *statusWriter) WriteHeader(statusCode int) {
 	w.status = statusCode
 	w.ResponseWriter.WriteHeader(statusCode)
 }
 
-func stringsHasSuffix(s, suffix string) bool {
-	if len(suffix) > len(s) {
-		return false
+func requestLogger(log *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		c.Next()
+		log.Info("request",
+			zap.String("method", c.Request.Method),
+			zap.String("path", c.Request.URL.Path),
+			zap.Int("status", c.Writer.Status()),
+			zap.Duration("dur", time.Since(start)),
+			zap.String("ip", c.ClientIP()),
+		)
 	}
 	return s[len(s)-len(suffix):] == suffix
 }
@@ -214,4 +208,39 @@ func (unavailableK8sClient) ResolveAlert(context.Context, string) error {
 func mustJSON(v interface{}) json.RawMessage {
 	b, _ := json.Marshal(v)
 	return b
+}
+
+// unavailableK8sClient provides explicit errors when no backend client is configured.
+// This avoids nil-pointer panics in handlers and returns predictable 5xx responses.
+type unavailableK8sClient struct{}
+
+func (unavailableK8sClient) GetClusterSummary(context.Context) (*ClusterSummary, error) {
+	return nil, errors.New("k8s client unavailable")
+}
+func (unavailableK8sClient) GetUtilizationHistory(context.Context, int) ([]TimeSeriesPoint, error) {
+	return nil, errors.New("k8s client unavailable")
+}
+func (unavailableK8sClient) ListGPUNodes(context.Context) ([]GPUNode, error) {
+	return nil, errors.New("k8s client unavailable")
+}
+func (unavailableK8sClient) ListPhoenixJobs(context.Context, string) ([]PhoenixJob, error) {
+	return nil, errors.New("k8s client unavailable")
+}
+func (unavailableK8sClient) GetPhoenixJob(context.Context, string, string) (*PhoenixJob, error) {
+	return nil, errors.New("k8s client unavailable")
+}
+func (unavailableK8sClient) TriggerCheckpoint(context.Context, string, string) error {
+	return errors.New("k8s client unavailable")
+}
+func (unavailableK8sClient) GetBillingByDepartment(context.Context, string) ([]DeptBilling, error) {
+	return nil, errors.New("k8s client unavailable")
+}
+func (unavailableK8sClient) GetBillingRecords(context.Context, string) ([]BillingRecord, error) {
+	return nil, errors.New("k8s client unavailable")
+}
+func (unavailableK8sClient) ListAlerts(context.Context) ([]Alert, error) {
+	return nil, errors.New("k8s client unavailable")
+}
+func (unavailableK8sClient) ResolveAlert(context.Context, string) error {
+	return errors.New("k8s client unavailable")
 }
