@@ -1,3 +1,6 @@
+//go:build !migrationfull
+// +build !migrationfull
+
 package internal
 
 import "fmt"
