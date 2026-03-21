@@ -5,12 +5,14 @@
 //
 // Copyright 2025 PhoenixGPU Authors
 // SPDX-License-Identifier: Apache-2.0
-package apiserver_test
+package main_test
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,9 +23,21 @@ import (
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	router := internal.NewRouter(internal.RouterConfig{
-		K8sClient:   internal.NewFakeK8sClient(),
-		Logger:      internal.NewNopLogger(),
-		EnableMock:  true,
+		K8sClient:       internal.NewFakeK8sClient(),
+		Logger:          internal.NewNopLogger(),
+		EnableMock:      true,
+		EnableMigration: false,
+	})
+	return httptest.NewServer(router)
+}
+
+func newTestServerWithMigration(t *testing.T, enabled bool) *httptest.Server {
+	t.Helper()
+	router := internal.NewRouter(internal.RouterConfig{
+		K8sClient:       internal.NewFakeK8sClient(),
+		Logger:          internal.NewNopLogger(),
+		EnableMock:      true,
+		EnableMigration: enabled,
 	})
 	return httptest.NewServer(router)
 }
@@ -39,16 +53,11 @@ func get(t *testing.T, srv *httptest.Server, path string, wantStatus int) []byte
 	if resp.StatusCode != wantStatus {
 		t.Errorf("GET %s: status=%d want=%d", path, resp.StatusCode, wantStatus)
 	}
-	var buf strings.Builder
-	b := make([]byte, 4096)
-	for {
-		n, err := resp.Body.Read(b)
-		buf.Write(b[:n])
-		if err != nil {
-			break
-		}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read response body for %s: %v", path, err)
 	}
-	return []byte(buf.String())
+	return body
 }
 
 // ─── T39-1: Health endpoints ──────────────────────────────────────
@@ -199,6 +208,31 @@ func TestListBillingDepartments_ReturnsArray(t *testing.T) {
 	}
 }
 
+func TestListBillingDepartments_InvalidPeriod(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+	get(t, srv, "/api/v1/billing/departments?period=yearly", http.StatusBadRequest)
+}
+
+func TestGetUtilHistory_LimitsMaxHours(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+
+	body := get(t, srv, "/api/v1/cluster/utilization-history?hours=999999", http.StatusOK)
+	var resp internal.APIResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	points, ok := resp.Data.([]interface{})
+	if !ok {
+		t.Fatalf("history must be array, got %T", resp.Data)
+	}
+	// maxHistoryHours (720) * 2 points per hour in FakeK8sClient.
+	if got, want := len(points), 1440; got != want {
+		t.Fatalf("unexpected history length: got=%d want=%d", got, want)
+	}
+}
+
 // ─── T39-6: Alerts ───────────────────────────────────────────────
 
 func TestListAlerts_ReturnsArray(t *testing.T) {
@@ -257,6 +291,134 @@ func TestAllEndpoints_ReturnJSONContentType(t *testing.T) {
 		if !strings.Contains(ct, "application/json") {
 			t.Errorf("GET %s: Content-Type=%q want application/json", ep, ct)
 		}
+	}
+}
+
+func TestMethodNotAllowed_Returns405(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/nodes", nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /api/v1/nodes: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("status=%d want=%d", resp.StatusCode, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestDynamicRoute_InvalidJobPath_Returns400(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+	get(t, srv, "/api/v1/jobs/research", http.StatusBadRequest)
+}
+
+func TestDynamicRoute_InvalidAlertPath_Returns404(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+	get(t, srv, "/api/v1/alerts/alert-1", http.StatusNotFound)
+}
+
+func TestMigrationRoutes_Disabled_Return404(t *testing.T) {
+	srv := newTestServerWithMigration(t, false)
+	defer srv.Close()
+
+	get(t, srv, "/api/v1/jobs/research/llm-pretrain-v3/migration-status", http.StatusNotFound)
+
+	resp, err := http.Post(
+		srv.URL+"/api/v1/jobs/research/llm-pretrain-v3/migrate",
+		"application/json",
+		strings.NewReader(`{"targetNode":"gpu-node-02"}`),
+	)
+	if err != nil {
+		t.Fatalf("POST migrate: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status=%d want=%d", resp.StatusCode, http.StatusNotFound)
+	}
+}
+
+func TestMigrationRoutes_Enabled_Workflow(t *testing.T) {
+	srv := newTestServerWithMigration(t, true)
+	defer srv.Close()
+
+	resp, err := http.Post(
+		srv.URL+"/api/v1/jobs/research/llm-pretrain-v3/migrate",
+		"application/json",
+		strings.NewReader(`{"targetNode":"gpu-node-02"}`),
+	)
+	if err != nil {
+		t.Fatalf("POST migrate: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status=%d want=%d", resp.StatusCode, http.StatusAccepted)
+	}
+
+	body := get(t, srv, "/api/v1/jobs/research/llm-pretrain-v3/migration-status", http.StatusOK)
+	var r internal.APIResponse
+	if err := json.Unmarshal(body, &r); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	data, ok := r.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("migration status must be object, got %T", r.Data)
+	}
+	if _, ok := data["status"]; !ok {
+		t.Fatalf("status field missing")
+	}
+}
+
+func TestMigrationRoutes_StatusPersistsToFileStore(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "migration-status.json")
+	store, err := internal.NewFileMigrationStatusStore(statusFile)
+	if err != nil {
+		t.Fatalf("new file migration status store: %v", err)
+	}
+
+	router := internal.NewRouter(internal.RouterConfig{
+		K8sClient:       internal.NewFakeK8sClient(),
+		Logger:          internal.NewNopLogger(),
+		EnableMock:      true,
+		EnableMigration: true,
+		MigrationStore:  store,
+	})
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	resp, err := http.Post(
+		srv.URL+"/api/v1/jobs/research/llm-pretrain-v3/migrate",
+		"application/json",
+		strings.NewReader(`{"targetNode":"gpu-node-02"}`),
+	)
+	if err != nil {
+		t.Fatalf("POST migrate: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status=%d want=%d", resp.StatusCode, http.StatusAccepted)
+	}
+
+	body := get(t, srv, "/api/v1/jobs/research/llm-pretrain-v3/migration-status", http.StatusOK)
+	var r internal.APIResponse
+	if err := json.Unmarshal(body, &r); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	data, ok := r.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("migration status must be object, got %T", r.Data)
+	}
+	if data["targetNode"] != "gpu-node-02" {
+		t.Fatalf("targetNode mismatch, got=%v", data["targetNode"])
+	}
+	if _, ok := data["startedAt"]; !ok {
+		t.Fatalf("startedAt field missing")
 	}
 }
 

@@ -1,10 +1,14 @@
+//go:build checkpointfull
+// +build checkpointfull
+
 // Package checkpoint — LocalPVC StorageBackend.
 //
 // Stores snapshots on a mounted PersistentVolumeClaim.
 // Directory layout:
-//   <root>/<namespace>/<jobName>/ckpt-<seq:05d>/
-//       meta.json        — SnapshotMeta serialized as JSON
-//       *.img            — CRIU checkpoint files (copied verbatim)
+//
+//	<root>/<namespace>/<jobName>/ckpt-<seq:05d>/
+//	    meta.json        — SnapshotMeta serialized as JSON
+//	    *.img            — CRIU checkpoint files (copied verbatim)
 //
 // Copyright 2025 PhoenixGPU Authors
 // SPDX-License-Identifier: Apache-2.0

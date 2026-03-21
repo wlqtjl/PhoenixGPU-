@@ -1,3 +1,6 @@
+//go:build s3
+// +build s3
+
 // Package checkpoint — S3 StorageBackend.
 //
 // Implements zero-disk-copy upload using io.Pipe + S3 Multipart Upload.
@@ -5,8 +8,9 @@
 // on-disk buffer — satisfying Engineering Covenant §6 "零磁盘二次拷贝".
 //
 // S3 key layout:
-//   <prefix>/<namespace>/<jobName>/ckpt-<seq:05d>/<filename>
-//   <prefix>/<namespace>/<jobName>/ckpt-<seq:05d>/meta.json
+//
+//	<prefix>/<namespace>/<jobName>/ckpt-<seq:05d>/<filename>
+//	<prefix>/<namespace>/<jobName>/ckpt-<seq:05d>/meta.json
 //
 // Copyright 2025 PhoenixGPU Authors
 // SPDX-License-Identifier: Apache-2.0
@@ -57,10 +61,10 @@ type S3Backend struct {
 
 // Prometheus metrics — registered once per process.
 var (
-	s3MetricsOnce     sync.Once
-	s3UploadBytes     *prometheus.CounterVec
-	s3UploadDuration  *prometheus.HistogramVec
-	s3UploadFailures  *prometheus.CounterVec
+	s3MetricsOnce    sync.Once
+	s3UploadBytes    *prometheus.CounterVec
+	s3UploadDuration *prometheus.HistogramVec
+	s3UploadFailures *prometheus.CounterVec
 )
 
 func initS3Metrics() {
@@ -195,7 +199,7 @@ func (b *S3Backend) uploadFile(
 	_, putErr := b.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        aws.String(b.cfg.Bucket),
 		Key:           aws.String(key),
-		Body:          pr,  // S3 SDK reads from the pipe
+		Body:          pr, // S3 SDK reads from the pipe
 		ContentLength: aws.Int64(size),
 	})
 	pr.Close()

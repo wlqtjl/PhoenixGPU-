@@ -1,13 +1,18 @@
+//go:build k8sfull
+// +build k8sfull
+
 // Package k8s — RealK8sClient, MetricsCache, and data enrichment.
 //
 // Architecture:
-//   K8s API Server  ──→  RealK8sClient.ListNodes()
-//   DCGM Prometheus ──→  MetricsCache (TTL=15s) ──→ NodeMetrics
-//   Both merged     ──→  GPUNode (API response type)
+//
+//	K8s API Server  ──→  RealK8sClient.ListNodes()
+//	DCGM Prometheus ──→  MetricsCache (TTL=15s) ──→ NodeMetrics
+//	Both merged     ──→  GPUNode (API response type)
 //
 // Graceful degradation (Engineering Covenant Sprint 5):
-//   Single metric failure must NOT fail the whole summary.
-//   MetricsCache returns last known value on fetch error.
+//
+//	Single metric failure must NOT fail the whole summary.
+//	MetricsCache returns last known value on fetch error.
 //
 // Copyright 2025 PhoenixGPU Authors
 // SPDX-License-Identifier: Apache-2.0
@@ -20,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -27,9 +33,8 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"go.uber.org/zap"
 
-	apitypes "github.com/wlqtjl/PhoenixGPU/cmd/api-server/internal"
+	"github.com/wlqtjl/PhoenixGPU/pkg/apitypes"
 )
 
 // ── Domain types for this package ─────────────────────────────────
@@ -66,12 +71,12 @@ type MetricsFetcher func(ctx context.Context) (float64, error)
 // MetricsCache wraps a MetricsFetcher with a TTL cache.
 // Graceful degradation: on fetch error, returns the last known value.
 type MetricsCache struct {
-	mu          sync.RWMutex
-	fetcher     MetricsFetcher
-	ttl         time.Duration
-	value       float64
-	fetchedAt   time.Time
-	hasValue    bool
+	mu        sync.RWMutex
+	fetcher   MetricsFetcher
+	ttl       time.Duration
+	value     float64
+	fetchedAt time.Time
+	hasValue  bool
 }
 
 // NewMetricsCache creates a cache with the given TTL.
@@ -112,9 +117,9 @@ func (c *MetricsCache) Get(ctx context.Context) (float64, error) {
 		return 0, fmt.Errorf("metrics fetch failed (no cached value): %w", err)
 	}
 
-	c.value     = newVal
+	c.value = newVal
 	c.fetchedAt = time.Now()
-	c.hasValue  = true
+	c.hasValue = true
 	return c.value, nil
 }
 
@@ -138,9 +143,9 @@ func EnrichNode(raw RawNode, metrics NodeMetrics, vramTotalMiB int64) apitypes.G
 
 // BuildClusterSummary aggregates job list + node list + metrics into a summary.
 func BuildClusterSummary(
-	jobs      []PhoenixJobStatus,
-	nodes     []RawNode,
-	avgUtil   float64,
+	jobs []PhoenixJobStatus,
+	nodes []RawNode,
+	avgUtil float64,
 	alertCount int,
 ) *apitypes.ClusterSummary {
 	totalGPUs := 0
@@ -151,9 +156,12 @@ func BuildClusterSummary(
 	activeJobs, ckptJobs, restoreJobs := 0, 0, 0
 	for _, j := range jobs {
 		switch j.Phase {
-		case "Running":      activeJobs++
-		case "Checkpointing": ckptJobs++
-		case "Restoring":    restoreJobs++
+		case "Running":
+			activeJobs++
+		case "Checkpointing":
+			ckptJobs++
+		case "Restoring":
+			restoreJobs++
 		}
 	}
 
@@ -231,7 +239,7 @@ func (c *RealK8sClient) GetClusterSummary(ctx context.Context) (*apitypes.Cluste
 	}
 
 	nodeCh := make(chan nodeResult, 1)
-	jobCh  := make(chan jobResult, 1)
+	jobCh := make(chan jobResult, 1)
 
 	go func() {
 		nodes, err := c.listRawNodes(ctx)
@@ -337,24 +345,26 @@ func (c *RealK8sClient) TriggerCheckpoint(ctx context.Context, namespace, name s
 }
 
 func (c *RealK8sClient) GetBillingByDepartment(_ context.Context, period string) ([]apitypes.DeptBilling, error) {
-	// TODO Sprint 6: query TimescaleDB billing_records table
-	// For Sprint 5: return computed data from PhoenixJob annotations
-	c.logger.Debug("GetBillingByDepartment: using mock data pending DB integration",
+	c.logger.Debug("GetBillingByDepartment not implemented in k8sfull runtime",
 		zap.String("period", period))
-	return apitypes.NewFakeK8sClient().GetBillingByDepartment(context.Background(), period)
+	return nil, fmt.Errorf("billing data unavailable in k8sfull runtime: enable billingfull integration")
 }
 
 func (c *RealK8sClient) GetBillingRecords(_ context.Context, department string) ([]apitypes.BillingRecord, error) {
-	return apitypes.NewFakeK8sClient().GetBillingRecords(context.Background(), department)
+	c.logger.Debug("GetBillingRecords not implemented in k8sfull runtime",
+		zap.String("department", department))
+	return nil, fmt.Errorf("billing records unavailable in k8sfull runtime: enable billingfull integration")
 }
 
 func (c *RealK8sClient) ListAlerts(_ context.Context) ([]apitypes.Alert, error) {
-	// TODO Sprint 6: query alert store
-	return apitypes.NewFakeK8sClient().ListAlerts(context.Background())
+	c.logger.Debug("ListAlerts not implemented in k8sfull runtime")
+	return nil, fmt.Errorf("alerts unavailable in k8sfull runtime: alert store integration pending")
 }
 
 func (c *RealK8sClient) ResolveAlert(_ context.Context, id string) error {
-	return apitypes.NewFakeK8sClient().ResolveAlert(context.Background(), id)
+	c.logger.Debug("ResolveAlert not implemented in k8sfull runtime",
+		zap.String("id", id))
+	return fmt.Errorf("resolve alert unavailable in k8sfull runtime: alert store integration pending")
 }
 
 // ── Internal helpers ──────────────────────────────────────────────
@@ -486,7 +496,7 @@ func (c *RealK8sClient) queryPromInstant(ctx context.Context, query string) (flo
 
 // queryPromRange fetches a range query and converts to TimeSeriesPoint slice.
 func (c *RealK8sClient) queryPromRange(ctx context.Context, query string, hours int) ([]apitypes.TimeSeriesPoint, error) {
-	end   := time.Now()
+	end := time.Now()
 	start := end.Add(-time.Duration(hours) * time.Hour)
 
 	url := fmt.Sprintf("%s/api/v1/query_range?query=%s&start=%d&end=%d&step=1800",
@@ -521,18 +531,18 @@ func (c *RealK8sClient) unstructuredToJob(item unstructured.Unstructured) (apity
 	}
 
 	return apitypes.PhoenixJob{
-		Name:               item.GetName(),
-		Namespace:          item.GetNamespace(),
-		Phase:              getString("status", "phase"),
-		CheckpointCount:    getInt("status", "checkpointCount"),
-		RestoreAttempts:    getInt("status", "restoreAttempts"),
-		LastCheckpointDir:  getString("status", "lastCheckpointDir"),
-		CurrentPodName:     getString("status", "currentPodName"),
-		CurrentNodeName:    getString("status", "currentNodeName"),
-		GPUModel:           getString("spec", "template", "spec", "containers", "0", "resources", "limits", "nvidia.com/gpu-model"),
-		AllocRatio:         getFloat("spec", "checkpoint", "allocRatio"),
-		Department:         getString("spec", "billing", "department"),
-		Project:            getString("spec", "billing", "project"),
+		Name:              item.GetName(),
+		Namespace:         item.GetNamespace(),
+		Phase:             getString("status", "phase"),
+		CheckpointCount:   getInt("status", "checkpointCount"),
+		RestoreAttempts:   getInt("status", "restoreAttempts"),
+		LastCheckpointDir: getString("status", "lastCheckpointDir"),
+		CurrentPodName:    getString("status", "currentPodName"),
+		CurrentNodeName:   getString("status", "currentNodeName"),
+		GPUModel:          getString("spec", "template", "spec", "containers", "0", "resources", "limits", "nvidia.com/gpu-model"),
+		AllocRatio:        getFloat("spec", "checkpoint", "allocRatio"),
+		Department:        getString("spec", "billing", "department"),
+		Project:           getString("spec", "billing", "project"),
 	}, nil
 }
 

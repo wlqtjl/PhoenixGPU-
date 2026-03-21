@@ -1,3 +1,6 @@
+//go:build checkpointfull
+// +build checkpointfull
+
 // Package checkpoint provides CRIU-based GPU process checkpoint and restore.
 //
 // PhoenixGPU Core — Self-developed (not derived from HAMi)
@@ -21,10 +24,10 @@ import (
 // CRIUCheckpointer implements Checkpointer using CRIU.
 // It wraps the `criu` CLI and handles GPU context via the cuda-checkpoint plugin.
 type CRIUCheckpointer struct {
-	criuBin        string        // path to criu binary
-	checkpointDir  string        // base directory for snapshot files
-	gpuPlugin      bool          // whether cuda-checkpoint plugin is available
-	logger         *zap.Logger
+	criuBin       string // path to criu binary
+	checkpointDir string // base directory for snapshot files
+	gpuPlugin     bool   // whether cuda-checkpoint plugin is available
+	logger        *zap.Logger
 }
 
 // SnapshotMeta holds metadata about a checkpoint snapshot.
@@ -103,10 +106,10 @@ func (c *CRIUCheckpointer) Dump(ctx context.Context, pid int, dir string) error 
 		"dump",
 		"--pid", strconv.Itoa(pid),
 		"--dir", dir,
-		"--shell-job",     // allow jobs with controlling terminals
+		"--shell-job",       // allow jobs with controlling terminals
 		"--tcp-established", // checkpoint established TCP connections
-		"--leave-running", // don't kill process after dump (for periodic ckpt)
-		"-v4",             // verbose for debugging; reduce in production
+		"--leave-running",   // don't kill process after dump (for periodic ckpt)
+		"-v4",               // verbose for debugging; reduce in production
 	}
 
 	if c.gpuPlugin {
@@ -178,7 +181,7 @@ func (c *CRIUCheckpointer) Restore(ctx context.Context, dir string) (int, error)
 		"--dir", dir,
 		"--shell-job",
 		"--tcp-established",
-		"-d",   // detach (background)
+		"-d", // detach (background)
 		"-v4",
 	}
 

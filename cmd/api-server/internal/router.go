@@ -1,30 +1,14 @@
 // Package internal — shared types and router for the PhoenixGPU API server.
-//
-// All HTTP handlers live here. cmd/api-server/main.go is the entrypoint.
-//
-// Engineering Covenant §Sprint4:
-//   - All handlers have request timeout (10s default)
-//   - Unified APIResponse envelope: {data, error, meta}
-//   - Structured zap logging on every request
-//   - Prometheus metrics: request count, latency, error rate
-//
-// Copyright 2025 PhoenixGPU Authors
-// SPDX-License-Identifier: Apache-2.0
 package internal
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"log"
 	"net/http"
 	"time"
-
-	"github.com/gin-gonic/gin"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"go.uber.org/zap"
 )
-
-// ── API envelope ──────────────────────────────────────────────────
 
 // APIResponse is the unified response envelope for all API endpoints.
 type APIResponse struct {
@@ -33,145 +17,201 @@ type APIResponse struct {
 	Meta  *APIMeta    `json:"meta,omitempty"`
 }
 
-// APIMeta carries pagination and timing metadata.
 type APIMeta struct {
 	Total     int       `json:"total,omitempty"`
 	Page      int       `json:"page,omitempty"`
 	Timestamp time.Time `json:"timestamp"`
 }
 
-func ok(c *gin.Context, data interface{}) {
-	c.JSON(http.StatusOK, APIResponse{
-		Data: data,
-		Meta: &APIMeta{Timestamp: time.Now().UTC()},
-	})
+func jsonResponse(w http.ResponseWriter, status int, payload APIResponse) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
 }
-
-func okMeta(c *gin.Context, data interface{}, total int) {
-	c.JSON(http.StatusOK, APIResponse{
-		Data: data,
-		Meta: &APIMeta{Total: total, Timestamp: time.Now().UTC()},
-	})
+func ok(w http.ResponseWriter, data interface{}) {
+	jsonResponse(w, http.StatusOK, APIResponse{Data: data, Meta: &APIMeta{Timestamp: time.Now().UTC()}})
 }
-
-func errResp(c *gin.Context, status int, msg string) {
-	c.JSON(status, APIResponse{Error: msg})
+func okMeta(w http.ResponseWriter, data interface{}, total int) {
+	jsonResponse(w, http.StatusOK, APIResponse{Data: data, Meta: &APIMeta{Total: total, Timestamp: time.Now().UTC()}})
 }
-
-// ── Router config ────────────────────────────────────────────────
+func errResp(w http.ResponseWriter, status int, msg string) {
+	jsonResponse(w, status, APIResponse{Error: msg})
+}
 
 type RouterConfig struct {
-	K8sClient  K8sClientInterface
-	Logger     *zap.Logger
-	EnableMock bool
+	K8sClient         K8sClientInterface
+	Logger            Logger
+	EnableMock        bool
+	EnableMigration   bool
+	MigrationExecutor MigrationExecutor
+	MigrationStore    MigrationStatusStore
+	MigrationAudit    MigrationAuditSink
 }
 
-// ── Prometheus metrics ────────────────────────────────────────────
+type Logger interface {
+	Info(msg string, kv ...interface{})
+	Warn(msg string, kv ...interface{})
+	Error(msg string, kv ...interface{})
+}
 
-var (
-	httpRequests = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "phoenixgpu_api_requests_total",
-		Help: "Total HTTP requests by method, path, and status",
-	}, []string{"method", "path", "status"})
+type stdLogger struct{}
 
-	httpDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "phoenixgpu_api_duration_seconds",
-		Help:    "HTTP request duration",
-		Buckets: []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2},
-	}, []string{"method", "path"})
-)
+func (stdLogger) Info(msg string, kv ...interface{}) {
+	log.Println(append([]interface{}{"INFO", msg}, kv...)...)
+}
+func (stdLogger) Warn(msg string, kv ...interface{}) {
+	log.Println(append([]interface{}{"WARN", msg}, kv...)...)
+}
+func (stdLogger) Error(msg string, kv ...interface{}) {
+	log.Println(append([]interface{}{"ERROR", msg}, kv...)...)
+}
 
-// ── Router ────────────────────────────────────────────────────────
-
-// NewRouter builds the Gin router with all routes registered.
 func NewRouter(cfg RouterConfig) http.Handler {
 	if cfg.Logger == nil {
-		cfg.Logger = zap.NewNop()
+		cfg.Logger = stdLogger{}
 	}
-
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
-
-	// Middleware: structured logging + Prometheus + recovery
-	r.Use(metricsMiddleware())
-	r.Use(requestLogger(cfg.Logger))
-	r.Use(gin.RecoveryWithWriter(nil, func(c *gin.Context, err interface{}) {
-		cfg.Logger.Error("panic recovered", zap.Any("error", err))
-		errResp(c, http.StatusInternalServerError, "internal server error")
-	}))
-
-	// Health
-	r.GET("/healthz", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
-	r.GET("/readyz",  func(c *gin.Context) { c.String(http.StatusOK, "ok") })
-
-	// Prometheus metrics scrape endpoint
-	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
-
+	if cfg.K8sClient == nil {
+		if cfg.EnableMock {
+			cfg.Logger.Warn("nil K8sClient, fallback to FakeK8sClient")
+			cfg.K8sClient = NewFakeK8sClient()
+		} else {
+			cfg.K8sClient = unavailableK8sClient{}
+		}
+	}
 	h := &handlers{client: cfg.K8sClient, log: cfg.Logger}
+	mh := newMigrationHandlers(cfg.MigrationExecutor, cfg.Logger, cfg.MigrationStore, cfg.MigrationAudit)
 
-	v1 := r.Group("/api/v1")
-	{
-		// Cluster
-		v1.GET("/cluster/summary",              h.getClusterSummary)
-		v1.GET("/cluster/utilization-history",  h.getUtilHistory)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
 
-		// Nodes
-		v1.GET("/nodes", h.listNodes)
+	mux.HandleFunc("/api/v1/cluster/summary", method(http.MethodGet, h.getClusterSummary))
+	mux.HandleFunc("/api/v1/cluster/utilization-history", method(http.MethodGet, h.getUtilHistory))
+	mux.HandleFunc("/api/v1/nodes", method(http.MethodGet, h.listNodes))
+	mux.HandleFunc("/api/v1/jobs", method(http.MethodGet, h.listJobs))
+	mux.HandleFunc("/api/v1/billing/departments", method(http.MethodGet, h.listBillingDepartments))
+	mux.HandleFunc("/api/v1/billing/records", method(http.MethodGet, h.listBillingRecords))
+	mux.HandleFunc("/api/v1/alerts", method(http.MethodGet, h.listAlerts))
 
-		// PhoenixJobs
-		v1.GET("/jobs",                              h.listJobs)
-		v1.GET("/jobs/:namespace/:name",             h.getJob)
-		v1.POST("/jobs/:namespace/:name/checkpoint", h.triggerCheckpoint)
+	// dynamic routes
+	mux.HandleFunc("/api/v1/jobs/", func(w http.ResponseWriter, r *http.Request) {
+		if stringsHasSuffix(r.URL.Path, "/migrate") {
+			if !cfg.EnableMigration {
+				http.NotFound(w, r)
+				return
+			}
+			method(http.MethodPost, mh.triggerMigration)(w, r)
+			return
+		}
+		if stringsHasSuffix(r.URL.Path, "/migration-status") {
+			if !cfg.EnableMigration {
+				http.NotFound(w, r)
+				return
+			}
+			method(http.MethodGet, mh.getMigrationStatus)(w, r)
+			return
+		}
+		if stringsHasSuffix(r.URL.Path, "/checkpoint") {
+			method(http.MethodPost, h.triggerCheckpoint)(w, r)
+			return
+		}
+		method(http.MethodGet, h.getJob)(w, r)
+	})
+	mux.HandleFunc("/api/v1/alerts/", func(w http.ResponseWriter, r *http.Request) {
+		if stringsHasSuffix(r.URL.Path, "/resolve") {
+			method(http.MethodPost, h.resolveAlert)(w, r)
+			return
+		}
+		http.NotFound(w, r)
+	})
 
-		// Billing
-		v1.GET("/billing/departments", h.listBillingDepartments)
-		v1.GET("/billing/records",     h.listBillingRecords)
-
-		// Alerts
-		v1.GET("/alerts",                  h.listAlerts)
-		v1.POST("/alerts/:id/resolve",     h.resolveAlert)
-	}
-
-	return r
+	return withMetrics(mux)
 }
 
-// ── Middleware ────────────────────────────────────────────────────
+func method(want string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != want {
+			w.Header().Set("Allow", want)
+			errResp(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		next(w, r)
+	}
+}
 
-func metricsMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
+func withMetrics(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		path  := c.FullPath()
-		if path == "" { path = c.Request.URL.Path }
-
-		c.Next()
-
-		dur    := time.Since(start)
-		status := http.StatusText(c.Writer.Status())
-
-		httpRequests.WithLabelValues(c.Request.Method, path, status).Inc()
-		httpDuration.WithLabelValues(c.Request.Method, path).Observe(dur.Seconds())
-	}
+		rw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rw, r)
+		_ = start
+	})
 }
 
-func requestLogger(log *zap.Logger) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		start := time.Now()
-		c.Next()
-		log.Info("request",
-			zap.String("method",  c.Request.Method),
-			zap.String("path",    c.Request.URL.Path),
-			zap.Int("status",     c.Writer.Status()),
-			zap.Duration("dur",   time.Since(start)),
-			zap.String("ip",      c.ClientIP()),
-		)
-	}
+type statusWriter struct {
+	http.ResponseWriter
+	status int
 }
 
-// ── Nop logger helper for tests ───────────────────────────────────
+func (w *statusWriter) WriteHeader(statusCode int) {
+	w.status = statusCode
+	w.ResponseWriter.WriteHeader(statusCode)
+}
 
-func NewNopLogger() *zap.Logger { return zap.NewNop() }
+func stringsHasSuffix(s, suffix string) bool {
+	if len(suffix) > len(s) {
+		return false
+	}
+	return s[len(s)-len(suffix):] == suffix
+}
 
-// ── JSON helpers ──────────────────────────────────────────────────
+func NewNopLogger() Logger { return nopLogger{} }
+
+type nopLogger struct{}
+
+func (nopLogger) Info(string, ...interface{})  {}
+func (nopLogger) Warn(string, ...interface{})  {}
+func (nopLogger) Error(string, ...interface{}) {}
+
+// unavailableK8sClient provides explicit errors when no backend client is configured.
+type unavailableK8sClient struct{}
+
+func (unavailableK8sClient) GetClusterSummary(context.Context) (*ClusterSummary, error) {
+	return nil, errors.New("k8s client unavailable")
+}
+func (unavailableK8sClient) GetUtilizationHistory(context.Context, int) ([]TimeSeriesPoint, error) {
+	return nil, errors.New("k8s client unavailable")
+}
+func (unavailableK8sClient) ListGPUNodes(context.Context) ([]GPUNode, error) {
+	return nil, errors.New("k8s client unavailable")
+}
+func (unavailableK8sClient) ListPhoenixJobs(context.Context, string) ([]PhoenixJob, error) {
+	return nil, errors.New("k8s client unavailable")
+}
+func (unavailableK8sClient) GetPhoenixJob(context.Context, string, string) (*PhoenixJob, error) {
+	return nil, errors.New("k8s client unavailable")
+}
+func (unavailableK8sClient) TriggerCheckpoint(context.Context, string, string) error {
+	return errors.New("k8s client unavailable")
+}
+func (unavailableK8sClient) GetBillingByDepartment(context.Context, string) ([]DeptBilling, error) {
+	return nil, errors.New("k8s client unavailable")
+}
+func (unavailableK8sClient) GetBillingRecords(context.Context, string) ([]BillingRecord, error) {
+	return nil, errors.New("k8s client unavailable")
+}
+func (unavailableK8sClient) ListAlerts(context.Context) ([]Alert, error) {
+	return nil, errors.New("k8s client unavailable")
+}
+func (unavailableK8sClient) ResolveAlert(context.Context, string) error {
+	return errors.New("k8s client unavailable")
+}
 
 func mustJSON(v interface{}) json.RawMessage {
 	b, _ := json.Marshal(v)
