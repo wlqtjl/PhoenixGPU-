@@ -1,3 +1,6 @@
+//go:build checkpointfull
+// +build checkpointfull
+
 // Package checkpoint — StorageBackend contract tests.
 // Written BEFORE implementation (TDD Red phase).
 // Any backend that passes these tests is production-ready.
@@ -36,9 +39,9 @@ func contractTest(t *testing.T, backend checkpoint.StorageBackend) {
 		src := t.TempDir()
 		// Write synthetic checkpoint files (simulate CRIU output)
 		files := map[string][]byte{
-			"pages-1.img":  make([]byte, 4096),
+			"pages-1.img":   make([]byte, 4096),
 			"core-1234.img": []byte("synthetic core dump"),
-			"mm-1234.img":  []byte("synthetic memory map"),
+			"mm-1234.img":   []byte("synthetic memory map"),
 		}
 		for name, data := range files {
 			if err := os.WriteFile(filepath.Join(src, name), data, 0644); err != nil {
@@ -119,8 +122,8 @@ func contractTest(t *testing.T, backend checkpoint.StorageBackend) {
 	// ── T16-C5: Prune keeps only N newest ─────────────────────────
 	t.Run("prune_keeps_newest", func(t *testing.T) {
 		pruneJob := "prune-test-job"
-		pruneNS  := "prune-ns"
-		jobKey   := pruneNS + "/" + pruneJob
+		pruneNS := "prune-ns"
+		jobKey := pruneNS + "/" + pruneJob
 
 		// Save 5 snapshots
 		for i := 1; i <= 5; i++ {

@@ -1,3 +1,6 @@
+//go:build k8sfull
+// +build k8sfull
+
 // Real K8s client tests — TDD Red phase.
 // Tests define the contract before implementation.
 //

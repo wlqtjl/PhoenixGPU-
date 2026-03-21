@@ -24,13 +24,13 @@ type SnapshotMeta struct {
 	Seq       int // monotonically increasing sequence number within a job
 
 	// Provenance
-	NodeName   string
-	PodName    string
-	GPUModel   string
+	NodeName string
+	PodName  string
+	GPUModel string
 
 	// Timing
-	CreatedAt   time.Time
-	DurationMS  int64  // how long the checkpoint took
+	CreatedAt  time.Time
+	DurationMS int64 // how long the checkpoint took
 
 	// Size (filled by backend after Save)
 	SizeBytes int64

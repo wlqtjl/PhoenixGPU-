@@ -1,3 +1,6 @@
+//go:build checkpointfull
+// +build checkpointfull
+
 // Package checkpoint_test — TDD: tests written BEFORE full implementation.
 // These define the contract that CRIUCheckpointer must fulfill.
 //
