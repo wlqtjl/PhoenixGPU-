@@ -1,5 +1,11 @@
 // Package internal — HTTP handlers for the PhoenixGPU API.
 //
+// Each handler:
+//  1. Reads request context (with timeout)
+//  2. Calls K8sClient to fetch data
+//  3. Returns unified APIResponse envelope
+//  4. Logs result via structured zap
+//
 // Copyright 2025 PhoenixGPU Authors
 // SPDX-License-Identifier: Apache-2.0
 package internal
@@ -8,7 +14,6 @@ import (
 	"context"
 	"net/http"
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -40,6 +45,8 @@ func (h *handlers) getUtilHistory(w http.ResponseWriter, r *http.Request) {
 	hours := 24
 	if v := r.URL.Query().Get("hours"); v != "" {
 		if n, err := parsePositiveInt(v); err == nil {
+			// Upper bound prevents unbounded response sizes and memory pressure
+			// caused by accidental requests such as ?hours=999999.
 			if n > maxHistoryHours {
 				n = maxHistoryHours
 			}
@@ -87,11 +94,8 @@ func (h *handlers) getJob(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
 	defer cancel()
 
-	ns, name, okPath := parseJobPath(r.URL.Path)
-	if !okPath {
-		errResp(w, http.StatusBadRequest, "invalid job path")
-		return
-	}
+	ns := c.Param("namespace")
+	name := c.Param("name")
 
 	job, err := h.client.GetPhoenixJob(ctx, ns, name)
 	if err != nil {
@@ -110,11 +114,8 @@ func (h *handlers) triggerCheckpoint(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
 	defer cancel()
 
-	ns, name, okPath := parseCheckpointPath(r.URL.Path)
-	if !okPath {
-		errResp(w, http.StatusBadRequest, "invalid checkpoint path")
-		return
-	}
+	ns := c.Param("namespace")
+	name := c.Param("name")
 
 	if err := h.client.TriggerCheckpoint(ctx, ns, name); err != nil {
 		if isNotFound(err) {
@@ -174,8 +175,12 @@ func (h *handlers) listAlerts(w http.ResponseWriter, r *http.Request) {
 		errResp(w, http.StatusInternalServerError, "failed to list alerts")
 		return
 	}
-	sort.Slice(alerts, func(i, j int) bool { return alerts[i].CreatedAt.After(alerts[j].CreatedAt) })
-	okMeta(w, alerts, len(alerts))
+	// Keep response order stable for clients and tests.
+	sort.Slice(alerts, func(i, j int) bool {
+		return alerts[i].CreatedAt.After(alerts[j].CreatedAt)
+	})
+
+	okMeta(c, alerts, len(alerts))
 }
 
 func (h *handlers) resolveAlert(w http.ResponseWriter, r *http.Request) {
