@@ -1,10 +1,10 @@
 // Package internal — HTTP handlers for the PhoenixGPU API.
 //
 // Each handler:
-//   1. Reads request context (with timeout)
-//   2. Calls K8sClient to fetch data
-//   3. Returns unified APIResponse envelope
-//   4. Logs result via structured zap
+//  1. Reads request context (with timeout)
+//  2. Calls K8sClient to fetch data
+//  3. Returns unified APIResponse envelope
+//  4. Logs result via structured zap
 //
 // Copyright 2025 PhoenixGPU Authors
 // SPDX-License-Identifier: Apache-2.0
@@ -13,6 +13,7 @@ package internal
 import (
 	"context"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -20,6 +21,7 @@ import (
 )
 
 const handlerTimeout = 10 * time.Second
+const maxHistoryHours = 24 * 30
 
 type handlers struct {
 	client K8sClientInterface
@@ -50,6 +52,11 @@ func (h *handlers) getUtilHistory(c *gin.Context) {
 	hours := 24
 	if v := c.Query("hours"); v != "" {
 		if n, err := parsePositiveInt(v); err == nil {
+			// Upper bound prevents unbounded response sizes and memory pressure
+			// caused by accidental requests such as ?hours=999999.
+			if n > maxHistoryHours {
+				n = maxHistoryHours
+			}
 			hours = n
 		}
 	}
@@ -100,7 +107,7 @@ func (h *handlers) getJob(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), handlerTimeout)
 	defer cancel()
 
-	ns   := c.Param("namespace")
+	ns := c.Param("namespace")
 	name := c.Param("name")
 
 	job, err := h.client.GetPhoenixJob(ctx, ns, name)
@@ -122,7 +129,7 @@ func (h *handlers) triggerCheckpoint(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), handlerTimeout)
 	defer cancel()
 
-	ns   := c.Param("namespace")
+	ns := c.Param("namespace")
 	name := c.Param("name")
 
 	if err := h.client.TriggerCheckpoint(ctx, ns, name); err != nil {
@@ -194,6 +201,11 @@ func (h *handlers) listAlerts(c *gin.Context) {
 		errResp(c, http.StatusInternalServerError, "failed to list alerts")
 		return
 	}
+	// Keep response order stable for clients and tests.
+	sort.Slice(alerts, func(i, j int) bool {
+		return alerts[i].CreatedAt.After(alerts[j].CreatedAt)
+	})
+
 	okMeta(c, alerts, len(alerts))
 }
 
