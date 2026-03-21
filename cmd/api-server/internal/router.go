@@ -39,9 +39,11 @@ func errResp(w http.ResponseWriter, status int, msg string) {
 }
 
 type RouterConfig struct {
-	K8sClient  K8sClientInterface
-	Logger     Logger
-	EnableMock bool
+	K8sClient         K8sClientInterface
+	Logger            Logger
+	EnableMock        bool
+	EnableMigration   bool
+	MigrationExecutor MigrationExecutor
 }
 
 type Logger interface {
@@ -75,6 +77,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		}
 	}
 	h := &handlers{client: cfg.K8sClient, log: cfg.Logger}
+	mh := newMigrationHandlers(cfg.MigrationExecutor, cfg.Logger)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -96,6 +99,22 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// dynamic routes
 	mux.HandleFunc("/api/v1/jobs/", func(w http.ResponseWriter, r *http.Request) {
+		if stringsHasSuffix(r.URL.Path, "/migrate") {
+			if !cfg.EnableMigration {
+				http.NotFound(w, r)
+				return
+			}
+			method(http.MethodPost, mh.triggerMigration)(w, r)
+			return
+		}
+		if stringsHasSuffix(r.URL.Path, "/migration-status") {
+			if !cfg.EnableMigration {
+				http.NotFound(w, r)
+				return
+			}
+			method(http.MethodGet, mh.getMigrationStatus)(w, r)
+			return
+		}
 		if stringsHasSuffix(r.URL.Path, "/checkpoint") {
 			method(http.MethodPost, h.triggerCheckpoint)(w, r)
 			return

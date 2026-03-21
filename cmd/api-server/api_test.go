@@ -22,9 +22,21 @@ import (
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	router := internal.NewRouter(internal.RouterConfig{
-		K8sClient:  internal.NewFakeK8sClient(),
-		Logger:     internal.NewNopLogger(),
-		EnableMock: true,
+		K8sClient:       internal.NewFakeK8sClient(),
+		Logger:          internal.NewNopLogger(),
+		EnableMock:      true,
+		EnableMigration: false,
+	})
+	return httptest.NewServer(router)
+}
+
+func newTestServerWithMigration(t *testing.T, enabled bool) *httptest.Server {
+	t.Helper()
+	router := internal.NewRouter(internal.RouterConfig{
+		K8sClient:       internal.NewFakeK8sClient(),
+		Logger:          internal.NewNopLogger(),
+		EnableMock:      true,
+		EnableMigration: enabled,
 	})
 	return httptest.NewServer(router)
 }
@@ -309,6 +321,57 @@ func TestDynamicRoute_InvalidAlertPath_Returns404(t *testing.T) {
 	srv := newTestServer(t)
 	defer srv.Close()
 	get(t, srv, "/api/v1/alerts/alert-1", http.StatusNotFound)
+}
+
+func TestMigrationRoutes_Disabled_Return404(t *testing.T) {
+	srv := newTestServerWithMigration(t, false)
+	defer srv.Close()
+
+	get(t, srv, "/api/v1/jobs/research/llm-pretrain-v3/migration-status", http.StatusNotFound)
+
+	resp, err := http.Post(
+		srv.URL+"/api/v1/jobs/research/llm-pretrain-v3/migrate",
+		"application/json",
+		strings.NewReader(`{"targetNode":"gpu-node-02"}`),
+	)
+	if err != nil {
+		t.Fatalf("POST migrate: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status=%d want=%d", resp.StatusCode, http.StatusNotFound)
+	}
+}
+
+func TestMigrationRoutes_Enabled_Workflow(t *testing.T) {
+	srv := newTestServerWithMigration(t, true)
+	defer srv.Close()
+
+	resp, err := http.Post(
+		srv.URL+"/api/v1/jobs/research/llm-pretrain-v3/migrate",
+		"application/json",
+		strings.NewReader(`{"targetNode":"gpu-node-02"}`),
+	)
+	if err != nil {
+		t.Fatalf("POST migrate: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status=%d want=%d", resp.StatusCode, http.StatusAccepted)
+	}
+
+	body := get(t, srv, "/api/v1/jobs/research/llm-pretrain-v3/migration-status", http.StatusOK)
+	var r internal.APIResponse
+	if err := json.Unmarshal(body, &r); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	data, ok := r.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("migration status must be object, got %T", r.Data)
+	}
+	if _, ok := data["status"]; !ok {
+		t.Fatalf("status field missing")
+	}
 }
 
 func TestAllEndpoints_NeverReturn500OnValidRequest(t *testing.T) {
