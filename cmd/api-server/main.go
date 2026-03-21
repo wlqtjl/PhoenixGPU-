@@ -26,6 +26,7 @@ type opts struct {
 	mock                bool
 	enableMigration     bool
 	promURL             string
+	migrationStore      string
 	migrationStatusFile string
 	migrationAuditFile  string
 }
@@ -36,6 +37,7 @@ func main() {
 	flag.BoolVar(&o.mock, "mock", false, "Use fake data")
 	flag.BoolVar(&o.enableMigration, "enable-migration", false, "Enable migration APIs")
 	flag.StringVar(&o.promURL, "prom-url", "http://prometheus.monitoring.svc:9090", "Prometheus base URL for real K8s mode")
+	flag.StringVar(&o.migrationStore, "migration-store", "memory", "Migration status backend: memory|file|crd")
 	flag.StringVar(&o.migrationStatusFile, "migration-status-file", "", "Optional JSON file path for durable migration status persistence")
 	flag.StringVar(&o.migrationAuditFile, "migration-audit-file", "", "Optional JSONL file path for migration audit events")
 	showVersion := flag.Bool("version", false, "Print version and exit")
@@ -62,12 +64,28 @@ func run(o *opts) error {
 		EnableMock:      o.mock,
 		EnableMigration: o.enableMigration,
 	}
-	if o.enableMigration && o.migrationStatusFile != "" {
-		store, err := internal.NewFileMigrationStatusStore(o.migrationStatusFile)
-		if err != nil {
-			return err
+	if o.enableMigration {
+		switch o.migrationStore {
+		case "memory":
+			cfg.MigrationStore = internal.NewMemoryMigrationStatusStore()
+		case "file":
+			if o.migrationStatusFile == "" {
+				return fmt.Errorf("--migration-store=file requires --migration-status-file")
+			}
+			store, err := internal.NewFileMigrationStatusStore(o.migrationStatusFile)
+			if err != nil {
+				return err
+			}
+			cfg.MigrationStore = store
+		case "crd":
+			store, err := internal.NewCRDMigrationStatusStore()
+			if err != nil {
+				return err
+			}
+			cfg.MigrationStore = store
+		default:
+			return fmt.Errorf("invalid --migration-store=%q (want memory|file|crd)", o.migrationStore)
 		}
-		cfg.MigrationStore = store
 	}
 	if o.enableMigration && o.migrationAuditFile != "" {
 		sink, err := internal.NewFileMigrationAuditSink(o.migrationAuditFile)

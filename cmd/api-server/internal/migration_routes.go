@@ -60,6 +60,10 @@ func newMemoryMigrationStatusStore() *memoryMigrationStatusStore {
 	return &memoryMigrationStatusStore{data: make(map[string]MigrationStatus)}
 }
 
+func NewMemoryMigrationStatusStore() MigrationStatusStore {
+	return newMemoryMigrationStatusStore()
+}
+
 func (s *memoryMigrationStatusStore) Save(_ context.Context, status MigrationStatus) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

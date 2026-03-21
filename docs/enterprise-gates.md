@@ -48,6 +48,7 @@ This file tracks hard release gates for production readiness.
   - Example: `PHOENIX_ENABLE_MIGRATION=true` requires `migrationfull` in `PHOENIX_BUILD_TAGS`.
 - Shared API domain types now live in `pkg/apitypes`, removing `pkg/k8s -> cmd/api-server/internal` reverse import for `k8sfull` builds.
 - Migration status endpoint now supports durable file-backed state (`--migration-status-file`) and JSONL audit events (`--migration-audit-file`) for restart-safe tracking and auditability.
+- Migration status backend now supports `--migration-store=crd` (requires `migrationfull`) for PhoenixJob CRD `status.migration` persistence.
 
 ## Gate-4: Enterprise Runtime Controls
 
