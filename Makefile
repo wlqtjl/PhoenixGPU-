@@ -14,7 +14,7 @@ CGO_ENABLED  := 0
 COMPONENTS := phoenix-controller device-plugin scheduler-extender billing-engine webhook
 
 .PHONY: all build test lint fmt vet clean docker-build helm-lint kind-up kind-down help \
-	quality-api-server quality-api-server-race quality-api-server-bench
+	quality-api-server-static quality-api-server quality-api-server-race quality-api-server-bench quality-api-server-stability
 
 ## ── Default ─────────────────────────────────────────────────────
 all: lint test build
@@ -51,6 +51,11 @@ test-short:
 test-verbose:
 	$(GO) test ./... -v -race -timeout=5m
 
+quality-api-server-static:
+	@echo "→ API Server static checks (gofmt + vet)..."
+	@test -z "$$(gofmt -l cmd/api-server)" || (echo "gofmt required for files above" && exit 1)
+	$(GO) vet ./cmd/api-server/...
+
 quality-api-server:
 	@echo "→ API Server quality baseline (L1/L2)..."
 	$(GO) test ./cmd/api-server -count=1 -coverprofile=coverage-api-server.out
@@ -63,6 +68,10 @@ quality-api-server-race:
 quality-api-server-bench:
 	@echo "→ API Server benchmark smoke (L4)..."
 	$(GO) test ./cmd/api-server -run '^$$' -bench . -benchmem -count=1
+
+quality-api-server-stability:
+	@echo "→ API Server stability check (repeat 20x)..."
+	$(GO) test ./cmd/api-server -count=20
 
 test-e2e:
 	@echo "→ Running E2E tests (requires running cluster)..."

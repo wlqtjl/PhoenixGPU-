@@ -6,7 +6,11 @@
 
 ### Level 1：静态代码分析
 ```bash
-# Go 基础静态检查
+# gofmt + vet（推荐直接）
+make quality-api-server-static
+
+# 或拆开执行
+gofmt -l cmd/api-server
 go vet ./cmd/api-server/...
 
 # 如本地已安装 golangci-lint
@@ -31,6 +35,13 @@ go tool cover -func=coverage-api-server.out | tail -1
 make quality-api-server-race
 # 或直接：
 go test -race ./cmd/api-server -count=1
+```
+
+### Level 3.5：稳定性回归（重复执行）
+```bash
+make quality-api-server-stability
+# 或直接：
+go test ./cmd/api-server -count=20
 ```
 
 ### Level 4：性能与压力（基准）
@@ -71,6 +82,6 @@ make test-e2e
 
 1. `make quality-api-server`
 2. `make quality-api-server-race`
-3. `make quality-api-server-bench`
-4. （有集群时）`make test-e2e`
-
+3. `make quality-api-server-stability`
+4. `make quality-api-server-bench`
+5. （有集群时）`make test-e2e`
