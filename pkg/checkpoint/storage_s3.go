@@ -1,3 +1,6 @@
+//go:build s3
+// +build s3
+
 // Package checkpoint — S3 StorageBackend.
 //
 // Implements zero-disk-copy upload using io.Pipe + S3 Multipart Upload.
