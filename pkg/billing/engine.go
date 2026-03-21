@@ -1,3 +1,6 @@
+//go:build billingfull
+// +build billingfull
+
 // Package billing implements the PhoenixGPU billing engine.
 // It collects GPU usage metrics and produces cost records denominated in TFlops·h.
 //
@@ -16,18 +19,18 @@ import (
 
 // GPUSpec defines the billing properties of a GPU model.
 type GPUSpec struct {
-	Model       string
-	FP16TFlops  float64 // FP16 peak TFlops — the "currency unit"
+	Model        string
+	FP16TFlops   float64 // FP16 peak TFlops — the "currency unit"
 	PricePerHour float64 // CNY per physical GPU per hour (internal cost)
 }
 
 // Well-known GPU specs for TFlops normalisation.
 // TFlops·h = AllocRatio × GPUSpec.FP16TFlops × DurationHours
 var KnownGPUs = map[string]GPUSpec{
-	"NVIDIA-H800":      {Model: "NVIDIA H800",      FP16TFlops: 2000, PricePerHour: 55},
-	"NVIDIA-A100-80GB": {Model: "NVIDIA A100 80GB", FP16TFlops: 312,  PricePerHour: 35},
-	"NVIDIA-A100-40GB": {Model: "NVIDIA A100 40GB", FP16TFlops: 312,  PricePerHour: 22},
-	"NVIDIA-RTX-4090":  {Model: "NVIDIA RTX 4090",  FP16TFlops: 165,  PricePerHour: 12},
+	"NVIDIA-H800":      {Model: "NVIDIA H800", FP16TFlops: 2000, PricePerHour: 55},
+	"NVIDIA-A100-80GB": {Model: "NVIDIA A100 80GB", FP16TFlops: 312, PricePerHour: 35},
+	"NVIDIA-A100-40GB": {Model: "NVIDIA A100 40GB", FP16TFlops: 312, PricePerHour: 22},
+	"NVIDIA-RTX-4090":  {Model: "NVIDIA RTX 4090", FP16TFlops: 165, PricePerHour: 12},
 	"Huawei-910B":      {Model: "Huawei Ascend 910B", FP16TFlops: 256, PricePerHour: 28},
 }
 
@@ -136,9 +139,9 @@ func (e *Engine) Compute(r *UsageRecord) error {
 	}
 
 	r.DurationHours = r.EndedAt.Sub(r.StartedAt).Hours()
-	r.GPUHours      = r.AllocRatio * r.DurationHours
-	r.TFlopsHours   = r.AllocRatio * spec.FP16TFlops * r.DurationHours
-	r.CostCNY       = r.AllocRatio * spec.PricePerHour * r.DurationHours
+	r.GPUHours = r.AllocRatio * r.DurationHours
+	r.TFlopsHours = r.AllocRatio * spec.FP16TFlops * r.DurationHours
+	r.CostCNY = r.AllocRatio * spec.PricePerHour * r.DurationHours
 
 	return nil
 }

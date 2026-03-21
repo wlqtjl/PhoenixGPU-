@@ -1,3 +1,6 @@
+//go:build billingfull
+// +build billingfull
+
 // Package billing — PostgreSQL/TimescaleDB BillingStore implementation.
 //
 // Implements the Store interface against TimescaleDB.
@@ -76,7 +79,7 @@ INSERT INTO usage_records (
 
 func (s *PostgresStore) SaveRecord(ctx context.Context, r UsageRecord) error {
 	_, err := s.db.ExecContext(ctx, insertRecord,
-		r.StartedAt,   // period_hour derived from started_at
+		r.StartedAt, // period_hour derived from started_at
 		r.Namespace, r.PodName, r.JobName,
 		r.Department, r.Project, r.CostCenter,
 		r.GPUModel, r.NodeName, r.AllocRatio,
@@ -140,28 +143,33 @@ func (s *PostgresStore) GetQuotaStatus(ctx context.Context, tenantID, period str
 func (s *PostgresStore) ListRecords(ctx context.Context, f RecordFilter) ([]UsageRecord, error) {
 	// Build safe parameterized query
 	where := " WHERE 1=1"
-	args  := []interface{}{}
-	idx   := 1
+	args := []interface{}{}
+	idx := 1
 
 	if f.Namespace != "" {
 		where += fmt.Sprintf(" AND namespace = $%d", idx)
-		args = append(args, f.Namespace); idx++
+		args = append(args, f.Namespace)
+		idx++
 	}
 	if f.Department != "" {
 		where += fmt.Sprintf(" AND department = $%d", idx)
-		args = append(args, f.Department); idx++
+		args = append(args, f.Department)
+		idx++
 	}
 	if f.Project != "" {
 		where += fmt.Sprintf(" AND project = $%d", idx)
-		args = append(args, f.Project); idx++
+		args = append(args, f.Project)
+		idx++
 	}
 	if !f.From.IsZero() {
 		where += fmt.Sprintf(" AND started_at >= $%d", idx)
-		args = append(args, f.From); idx++
+		args = append(args, f.From)
+		idx++
 	}
 	if !f.To.IsZero() {
 		where += fmt.Sprintf(" AND ended_at <= $%d", idx)
-		args = append(args, f.To); idx++
+		args = append(args, f.To)
+		idx++
 	}
 	_ = idx
 

@@ -5,18 +5,18 @@
 //
 // Architecture:
 //
-//   cuMemAlloc hook  ──→  OversubManager.Alloc()
-//        │                    │
-//        │              Physical VRAM available?
-//        │                 Yes → allocate normally
-//        │                 No  → LRU.Evict() → SwapEngine.SwapOut()
-//        │                       → allocate in physical VRAM
-//        │
-//   cuMemFree hook   ──→  OversubManager.Free()
-//                         SwapEngine.Remove() if was swapped
+//	cuMemAlloc hook  ──→  OversubManager.Alloc()
+//	     │                    │
+//	     │              Physical VRAM available?
+//	     │                 Yes → allocate normally
+//	     │                 No  → LRU.Evict() → SwapEngine.SwapOut()
+//	     │                       → allocate in physical VRAM
+//	     │
+//	cuMemFree hook   ──→  OversubManager.Free()
+//	                      SwapEngine.Remove() if was swapped
 //
-//   cuLaunchKernel hook → LRU.Touch(all accessed addrs)
-//                         If addr is swapped → SwapEngine.SwapIn()
+//	cuLaunchKernel hook → LRU.Touch(all accessed addrs)
+//	                      If addr is swapped → SwapEngine.SwapIn()
 //
 // Engineering Covenant (Sprint 9):
 //   - Swap ops MUST NOT hold global mutex (blocks all CUDA calls)
@@ -118,9 +118,9 @@ func (l *LRUTracker) Len() int {
 // All counters use atomic operations — no mutex needed for the
 // critical path (cuMemAlloc hook).
 type OversubManager struct {
-	physicalCapMiB  uint64
-	oversubRatio    float64
-	virtualCapMiB   uint64
+	physicalCapMiB uint64
+	oversubRatio   float64
+	virtualCapMiB  uint64
 
 	// Atomic counters (safe for concurrent cuMemAlloc/Free)
 	physicalUsedMiB atomic.Uint64
@@ -164,9 +164,17 @@ func (m *OversubManager) Alloc(sizeMiB uint64) error {
 				break
 			}
 		} else {
-			// Goes to swap
-			m.swapUsedMiB.Add(sizeMiB)
-			break
+			// Partially consume any remaining physical VRAM, rest goes to swap.
+			// This avoids over-counting swap when there is still physical headroom.
+			if phys >= m.physicalCapMiB {
+				m.swapUsedMiB.Add(sizeMiB)
+				break
+			}
+			remainingPhys := m.physicalCapMiB - phys
+			if m.physicalUsedMiB.CompareAndSwap(phys, m.physicalCapMiB) {
+				m.swapUsedMiB.Add(sizeMiB - remainingPhys)
+				break
+			}
 		}
 	}
 	return nil
