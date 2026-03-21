@@ -30,14 +30,24 @@ This file tracks hard release gates for production readiness.
 - Missing go.sum entries for multiple transitive dependencies.
 - Failing test in `pkg/vgpu` (`TestDensity_TwoTasksShareOneGPU`).
 
+**Execution tooling**
+- `hack/profile-matrix.sh` now provides a repeatable build-profile test matrix:
+  - default (`go test ./...`)
+  - single-tag lanes (`k8sfull`, `checkpointfull`, `migrationfull`, `billingfull`)
+  - multi-tag combo lanes for integration pressure checks.
+
 ## Gate-3: Production Semantics
 
 **Objective**
 - non-mock path must use real K8s client.
 - migration status durable (CRD/DB), with audit logs.
 
+**Execution tooling**
+- `hack/preflight-check.sh` enforces runtime intent vs build tags before deployment.
+  - Example: `PHOENIX_ENABLE_REAL_K8S=true` requires `k8sfull` in `PHOENIX_BUILD_TAGS`.
+  - Example: `PHOENIX_ENABLE_MIGRATION=true` requires `migrationfull` in `PHOENIX_BUILD_TAGS`.
+
 ## Gate-4: Enterprise Runtime Controls
 
 **Objective**
 - AuthN/AuthZ, rate limiting, circuit breaking, observability dashboards/alerts.
-
