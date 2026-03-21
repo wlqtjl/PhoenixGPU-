@@ -1,0 +1,61 @@
+name: api-server-quality
+
+on:
+  pull_request:
+    paths:
+      - "cmd/api-server/**"
+      - ".github/workflows/api-server-quality.yml"
+      - "Makefile"
+  workflow_dispatch:
+
+jobs:
+  static-and-unit:
+    name: L1-L2 Static + Unit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Unit test + coverage (api-server)
+        run: |
+          go test ./cmd/api-server -count=1 -coverprofile=coverage-api-server.out
+          go tool cover -func=coverage-api-server.out | tail -1
+
+  race:
+    name: L3 Race Detection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run race tests (api-server)
+        run: go test -race ./cmd/api-server -count=1
+
+  bench-smoke:
+    name: L4 Benchmark Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Benchmark smoke (api-server)
+        run: go test ./cmd/api-server -run '^$' -bench . -benchmem -count=1
+
+  # L5/L6 说明：
+  # - 集成与 E2E 建议在有 kind/k8s 资源的 workflow 中执行。
+  # - 生产可观测性与告警由部署平台（Prometheus/Grafana/Alertmanager）保障。
