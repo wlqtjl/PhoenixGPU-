@@ -1,3 +1,6 @@
+//go:build controllerfull
+// +build controllerfull
+
 // Package hacontroller — FaultDetector watches K8s Nodes for NotReady events.
 //
 // Copyright 2025 PhoenixGPU Authors
@@ -8,18 +11,18 @@ import (
 	"context"
 	"time"
 
+	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"go.uber.org/zap"
 )
 
 // FaultDetector continuously monitors cluster nodes.
 // When a node transitions to NotReady for longer than Threshold,
 // it emits a FaultEvent to the handler.
 type FaultDetector struct {
-	client    client.Client
-	logger    *zap.Logger
-	handler   func(context.Context, FaultEvent)
+	client  client.Client
+	logger  *zap.Logger
+	handler func(context.Context, FaultEvent)
 
 	// PollInterval controls how often node status is checked.
 	PollInterval time.Duration

@@ -1,3 +1,6 @@
+//go:build controllerfull
+// +build controllerfull
+
 // Package hacontroller implements the PhoenixHA Controller.
 // It watches for node failures and triggers Checkpoint/Restore for affected PhoenixJobs.
 //
@@ -11,11 +14,11 @@ import (
 	"fmt"
 	"time"
 
+	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"go.uber.org/zap"
 
 	"github.com/wlqtjl/PhoenixGPU/pkg/checkpoint"
 )
@@ -33,7 +36,7 @@ const (
 
 // FaultEvent is emitted by the FaultDetector when a node failure is detected.
 type FaultEvent struct {
-	NodeName  string
+	NodeName   string
 	DetectedAt time.Time
 }
 
@@ -46,9 +49,9 @@ type PhoenixHAController struct {
 	Logger        *zap.Logger
 
 	// Config
-	CheckpointInterval   time.Duration
+	CheckpointInterval    time.Duration
 	RestoreTimeoutSeconds int
-	MaxRestoreAttempts   int
+	MaxRestoreAttempts    int
 }
 
 // +kubebuilder:rbac:groups=phoenixgpu.io,resources=phoenixjobs,verbs=get;list;watch;create;update;patch;delete
@@ -309,9 +312,11 @@ func (j *unstructuredPhoenixJob) Object() client.Object {
 	return nil
 }
 
-func (j *unstructuredPhoenixJob) Namespace() string    { return getString(j.data, "metadata", "namespace") }
-func (j *unstructuredPhoenixJob) Name() string         { return getString(j.data, "metadata", "name") }
-func (j *unstructuredPhoenixJob) Phase() string        { return getString(j.data, "status", "phase") }
+func (j *unstructuredPhoenixJob) Namespace() string {
+	return getString(j.data, "metadata", "namespace")
+}
+func (j *unstructuredPhoenixJob) Name() string  { return getString(j.data, "metadata", "name") }
+func (j *unstructuredPhoenixJob) Phase() string { return getString(j.data, "status", "phase") }
 func (j *unstructuredPhoenixJob) LastCheckpointDir() string {
 	return getString(j.data, "status", "lastCheckpointDir")
 }

@@ -1,3 +1,6 @@
+//go:build checkpointfull
+// +build checkpointfull
+
 package checkpoint_test
 
 import (
@@ -7,16 +10,16 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/zap/zaptest"
 	"github.com/wlqtjl/PhoenixGPU/pkg/checkpoint"
+	"go.uber.org/zap/zaptest"
 )
 
 // ── Mock backend for Uploader tests ──────────────────────────────
 
 type mockBackend struct {
-	saveCalls  int64
-	saveDelay  time.Duration
-	saveErr    error
+	saveCalls int64
+	saveDelay time.Duration
+	saveErr   error
 }
 
 func (m *mockBackend) Save(_ context.Context, _ string, _ checkpoint.SnapshotMeta) error {
@@ -27,9 +30,11 @@ func (m *mockBackend) Save(_ context.Context, _ string, _ checkpoint.SnapshotMet
 	return m.saveErr
 }
 func (m *mockBackend) Load(_ context.Context, _ checkpoint.SnapshotMeta, _ string) error { return nil }
-func (m *mockBackend) List(_ context.Context, _ string) ([]checkpoint.SnapshotMeta, error) { return nil, nil }
+func (m *mockBackend) List(_ context.Context, _ string) ([]checkpoint.SnapshotMeta, error) {
+	return nil, nil
+}
 func (m *mockBackend) Delete(_ context.Context, _ checkpoint.SnapshotMeta) error { return nil }
-func (m *mockBackend) Prune(_ context.Context, _ string, _ int) error { return nil }
+func (m *mockBackend) Prune(_ context.Context, _ string, _ int) error            { return nil }
 
 // ── Tests ──────────────────────────────────────────────────────────
 

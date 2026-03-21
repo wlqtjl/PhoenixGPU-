@@ -1,3 +1,6 @@
+//go:build controllerfull
+// +build controllerfull
+
 // phoenix-controller — PhoenixGPU HA Controller
 //
 // Watches PhoenixJob CRDs, schedules periodic Checkpoints,
@@ -29,16 +32,16 @@ var (
 )
 
 type options struct {
-	metricsAddr          string
-	probeAddr            string
-	checkpointDir        string
-	checkpointIntervalS  int
-	notReadyThresholdS   int
-	faultPollIntervalS   int
-	maxRestoreAttempts   int
-	restoreTimeoutS      int
-	leaderElection       bool
-	leaderElectionID     string
+	metricsAddr         string
+	probeAddr           string
+	checkpointDir       string
+	checkpointIntervalS int
+	notReadyThresholdS  int
+	faultPollIntervalS  int
+	maxRestoreAttempts  int
+	restoreTimeoutS     int
+	leaderElection      bool
+	leaderElectionID    string
 }
 
 func main() {
@@ -134,7 +137,7 @@ func run(opts *options) error {
 		logger,
 		haCtrl.HandleNodeFault,
 	)
-	faultDetector.PollInterval      = time.Duration(opts.faultPollIntervalS) * time.Second
+	faultDetector.PollInterval = time.Duration(opts.faultPollIntervalS) * time.Second
 	faultDetector.NotReadyThreshold = time.Duration(opts.notReadyThresholdS) * time.Second
 
 	// Run fault detector as a background goroutine inside the manager

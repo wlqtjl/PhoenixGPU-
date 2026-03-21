@@ -1,8 +1,11 @@
+//go:build checkpointfull
+// +build checkpointfull
+
 // Package checkpoint — Snapshot Upload Worker Pool.
 //
 // Architecture (Engineering Covenant §2.4):
 //
-//   CRIU Watcher ──→ Task Channel (buffered=64) ──→ [Worker 1..N] ──→ StorageBackend
+//	CRIU Watcher ──→ Task Channel (buffered=64) ──→ [Worker 1..N] ──→ StorageBackend
 //
 // Guarantees:
 //   - Fixed N workers (configurable, no dynamic scaling — YAGNI)
@@ -27,10 +30,10 @@ import (
 )
 
 const (
-	defaultWorkers     = 4
-	defaultChanBuf     = 64
-	defaultUploadTO    = 5 * time.Minute
-	defaultMaxRetries  = 3
+	defaultWorkers    = 4
+	defaultChanBuf    = 64
+	defaultUploadTO   = 5 * time.Minute
+	defaultMaxRetries = 3
 )
 
 // UploaderConfig controls Worker Pool behaviour.
@@ -43,19 +46,27 @@ type UploaderConfig struct {
 
 func (c *UploaderConfig) withDefaults() UploaderConfig {
 	out := *c
-	if out.Workers <= 0       { out.Workers = defaultWorkers }
-	if out.ChannelBuffer <= 0 { out.ChannelBuffer = defaultChanBuf }
-	if out.UploadTimeout <= 0 { out.UploadTimeout = defaultUploadTO }
-	if out.MaxRetries <= 0    { out.MaxRetries = defaultMaxRetries }
+	if out.Workers <= 0 {
+		out.Workers = defaultWorkers
+	}
+	if out.ChannelBuffer <= 0 {
+		out.ChannelBuffer = defaultChanBuf
+	}
+	if out.UploadTimeout <= 0 {
+		out.UploadTimeout = defaultUploadTO
+	}
+	if out.MaxRetries <= 0 {
+		out.MaxRetries = defaultMaxRetries
+	}
 	return out
 }
 
 // Uploader manages a pool of workers that upload CRIU snapshots to a StorageBackend.
 type Uploader struct {
-	backend  StorageBackend
-	cfg      UploaderConfig
-	logger   *zap.Logger
-	tasks    chan UploadTask
+	backend StorageBackend
+	cfg     UploaderConfig
+	logger  *zap.Logger
+	tasks   chan UploadTask
 
 	// Atomic counters for O(1) status queries — Covenant §2.3 (atomic > mutex for counters)
 	pending   int64
