@@ -1,3 +1,6 @@
+//go:build migration
+// +build migration
+
 // Migration API handler — POST /api/v1/jobs/:ns/:name/migrate
 //
 // Copyright 2025 PhoenixGPU Authors
@@ -30,13 +33,13 @@ type migrationHandlers struct {
 	executor MigrationExecutor
 	log      *zap.Logger
 	// In-memory status store (Sprint 8: replace with K8s annotation)
-	status   map[string]*migration.Result
+	status map[string]*migration.Result
 }
 
 // POST /api/v1/jobs/:namespace/:name/migrate
 // Body: { "targetNode": "gpu-node-02" }
 func (h *migrationHandlers) triggerMigration(c *gin.Context) {
-	ns   := c.Param("namespace")
+	ns := c.Param("namespace")
 	name := c.Param("name")
 
 	var req migration.MigrateRequest
@@ -46,7 +49,7 @@ func (h *migrationHandlers) triggerMigration(c *gin.Context) {
 		return
 	}
 	req.JobNamespace = ns
-	req.JobName      = name
+	req.JobName = name
 
 	if err := req.Validate(); err != nil {
 		errResp(c, http.StatusBadRequest, err.Error())
@@ -54,7 +57,7 @@ func (h *migrationHandlers) triggerMigration(c *gin.Context) {
 	}
 
 	h.log.Info("live migration triggered",
-		zap.String("job",    ns+"/"+name),
+		zap.String("job", ns+"/"+name),
 		zap.String("target", req.TargetNode))
 
 	// Migration is async — return 202 Accepted immediately
@@ -73,7 +76,7 @@ func (h *migrationHandlers) triggerMigration(c *gin.Context) {
 			return
 		}
 		h.log.Info("live migration completed",
-			zap.String("job",    ns+"/"+name),
+			zap.String("job", ns+"/"+name),
 			zap.Duration("total", result.TotalDuration),
 			zap.Duration("freeze", result.FreezeWindow))
 	}()
@@ -89,7 +92,7 @@ func (h *migrationHandlers) triggerMigration(c *gin.Context) {
 
 // GET /api/v1/jobs/:namespace/:name/migration-status
 func (h *migrationHandlers) getMigrationStatus(c *gin.Context) {
-	ns   := c.Param("namespace")
+	ns := c.Param("namespace")
 	name := c.Param("name")
 	// Placeholder: real implementation reads from K8s annotation
 	ok(c, map[string]string{

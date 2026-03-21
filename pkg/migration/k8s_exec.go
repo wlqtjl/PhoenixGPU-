@@ -14,13 +14,13 @@ import (
 	"net/url"
 	"time"
 
+	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
-	"k8s.io/kubectl/pkg/scheme"
-	"go.uber.org/zap"
 )
 
 // ── ExecCall is the record of a single exec invocation ───────────
@@ -62,9 +62,15 @@ func (r MigrateRequest) Validate() error {
 
 // SetDefaults fills optional Plan fields with production defaults.
 func (p *Plan) SetDefaults() {
-	if p.SnapshotDir == ""    { p.SnapshotDir    = "/tmp/phoenix-migration/" + p.JobName }
-	if p.TransferMethod == "" { p.TransferMethod = "rsync" }
-	if p.FreezeTimeout == 0  { p.FreezeTimeout  = 10 * time.Second }
+	if p.SnapshotDir == "" {
+		p.SnapshotDir = "/tmp/phoenix-migration/" + p.JobName
+	}
+	if p.TransferMethod == "" {
+		p.TransferMethod = "rsync"
+	}
+	if p.FreezeTimeout == 0 {
+		p.FreezeTimeout = 10 * time.Second
+	}
 }
 
 // ── K8sPodExec — production implementation ───────────────────────
@@ -114,18 +120,18 @@ func (e *K8sPodExec) ExecInPod(ctx context.Context, call ExecCall) error {
 	})
 	if err != nil {
 		e.logger.Error("exec in pod failed",
-			zap.String("stage",   call.Stage),
-			zap.String("node",    call.NodeName),
-			zap.String("pod",     podName),
-			zap.String("stderr",  stderr.String()),
+			zap.String("stage", call.Stage),
+			zap.String("node", call.NodeName),
+			zap.String("pod", podName),
+			zap.String("stderr", stderr.String()),
 			zap.Error(err))
 		return fmt.Errorf("exec stage=%s pod=%s: %w\nstderr: %s",
 			call.Stage, podName, err, stderr.String())
 	}
 
 	e.logger.Debug("exec in pod succeeded",
-		zap.String("stage",  call.Stage),
-		zap.String("pod",    podName),
+		zap.String("stage", call.Stage),
+		zap.String("pod", podName),
 		zap.String("stdout", stdout.String()))
 	return nil
 }
@@ -178,9 +184,9 @@ func (e *RealExecutorWithExec) Execute(ctx context.Context, plan Plan) (*Result,
 	start := time.Now()
 
 	log := e.logger.With(
-		zap.String("job",    plan.JobNamespace+"/"+plan.JobName),
-		zap.String("src",    plan.SourceNode),
-		zap.String("tgt",    plan.TargetNode),
+		zap.String("job", plan.JobNamespace+"/"+plan.JobName),
+		zap.String("src", plan.SourceNode),
+		zap.String("tgt", plan.TargetNode),
 	)
 
 	stages := []struct {
@@ -188,9 +194,9 @@ func (e *RealExecutorWithExec) Execute(ctx context.Context, plan Plan) (*Result,
 		fn    func() error
 	}{
 		{StatePreDumping, func() error { return e.stagePreDump(ctx, plan) }},
-		{StateDumping,    func() error { return e.stageDump(ctx, plan) }},
+		{StateDumping, func() error { return e.stageDump(ctx, plan) }},
 		{StateTransferring, func() error { return e.stageTransfer(ctx, plan) }},
-		{StateRestoring,  func() error { return e.stageRestore(ctx, plan) }},
+		{StateRestoring, func() error { return e.stageRestore(ctx, plan) }},
 	}
 
 	var freezeStart time.Time
@@ -218,10 +224,10 @@ func (e *RealExecutorWithExec) Execute(ctx context.Context, plan Plan) (*Result,
 		}
 	}
 
-	result.State         = StateDone
+	result.State = StateDone
 	result.TotalDuration = time.Since(start)
 	log.Info("migration complete",
-		zap.Duration("total",  result.TotalDuration),
+		zap.Duration("total", result.TotalDuration),
 		zap.Duration("freeze", result.FreezeWindow))
 	return result, nil
 }
