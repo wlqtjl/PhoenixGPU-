@@ -25,6 +25,7 @@ type opts struct {
 	addr            string
 	mock            bool
 	enableMigration bool
+	promURL         string
 }
 
 func main() {
@@ -32,6 +33,7 @@ func main() {
 	flag.StringVar(&o.addr, "addr", ":8090", "HTTP listen address")
 	flag.BoolVar(&o.mock, "mock", false, "Use fake data")
 	flag.BoolVar(&o.enableMigration, "enable-migration", false, "Enable migration APIs")
+	flag.StringVar(&o.promURL, "prom-url", "http://prometheus.monitoring.svc:9090", "Prometheus base URL for real K8s mode")
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
 	if *showVersion {
@@ -45,11 +47,9 @@ func main() {
 }
 
 func run(o *opts) error {
-	var client internal.K8sClientInterface
-	if o.mock {
-		client = internal.NewFakeK8sClient()
-	} else {
-		client = internal.NewFakeK8sClient()
+	client, err := buildK8sClient(o)
+	if err != nil {
+		return err
 	}
 
 	router := internal.NewRouter(internal.RouterConfig{
