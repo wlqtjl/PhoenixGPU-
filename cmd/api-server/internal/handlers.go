@@ -14,6 +14,7 @@ import (
 	"context"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -94,8 +95,11 @@ func (h *handlers) getJob(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
 	defer cancel()
 
-	ns := c.Param("namespace")
-	name := c.Param("name")
+	ns, name, okPath := parseJobPath(r.URL.Path)
+	if !okPath {
+		errResp(w, http.StatusBadRequest, "invalid job path")
+		return
+	}
 
 	job, err := h.client.GetPhoenixJob(ctx, ns, name)
 	if err != nil {
@@ -114,8 +118,11 @@ func (h *handlers) triggerCheckpoint(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
 	defer cancel()
 
-	ns := c.Param("namespace")
-	name := c.Param("name")
+	ns, name, okPath := parseCheckpointPath(r.URL.Path)
+	if !okPath {
+		errResp(w, http.StatusBadRequest, "invalid checkpoint path")
+		return
+	}
 
 	if err := h.client.TriggerCheckpoint(ctx, ns, name); err != nil {
 		if isNotFound(err) {
@@ -180,7 +187,7 @@ func (h *handlers) listAlerts(w http.ResponseWriter, r *http.Request) {
 		return alerts[i].CreatedAt.After(alerts[j].CreatedAt)
 	})
 
-	okMeta(c, alerts, len(alerts))
+	okMeta(w, alerts, len(alerts))
 }
 
 func (h *handlers) resolveAlert(w http.ResponseWriter, r *http.Request) {
