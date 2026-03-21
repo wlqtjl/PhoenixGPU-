@@ -28,10 +28,8 @@ func NewS3Backend(context.Context, S3Config, interface{}) (*S3Backend, error) {
 	return nil, errS3BackendDisabled
 }
 
-func (*S3Backend) Save(context.Context, string, SnapshotMeta) error { return errS3BackendDisabled }
-func (*S3Backend) Load(context.Context, SnapshotMeta, string) error { return errS3BackendDisabled }
-func (*S3Backend) List(context.Context, string) ([]SnapshotMeta, error) {
-	return nil, errS3BackendDisabled
-}
-func (*S3Backend) Delete(context.Context, SnapshotMeta) error { return errS3BackendDisabled }
-func (*S3Backend) Prune(context.Context, string, int) error   { return errS3BackendDisabled }
+func (*S3Backend) Save(context.Context, string, SnapshotMeta) error          { return errS3BackendDisabled }
+func (*S3Backend) Load(context.Context, SnapshotMeta, string) error          { return errS3BackendDisabled }
+func (*S3Backend) List(context.Context, string) ([]SnapshotMeta, error)      { return nil, errS3BackendDisabled }
+func (*S3Backend) Delete(context.Context, SnapshotMeta) error                { return errS3BackendDisabled }
+func (*S3Backend) Prune(context.Context, string, int) error                  { return errS3BackendDisabled }
