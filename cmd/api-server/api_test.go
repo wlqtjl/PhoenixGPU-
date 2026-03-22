@@ -396,3 +396,98 @@ func TestAllEndpoints_NeverReturn500OnValidRequest(t *testing.T) {
 		}
 	}
 }
+
+func TestGovernance_CreateAgent_AndList(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+
+	resp, err := http.Post(
+		srv.URL+"/api/v1/control/agents",
+		"application/json",
+		strings.NewReader(`{"agentId":"agent-orchestrator","type":"orchestrator","model":"gpt-4.1","capability":["plan","dispatch"],"budgetLimit":800,"actor":"alice"}`),
+	)
+	if err != nil {
+		t.Fatalf("POST agents: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status=%d want=%d", resp.StatusCode, http.StatusCreated)
+	}
+
+	body := get(t, srv, "/api/v1/control/agents", http.StatusOK)
+	var apiResp internal.APIResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	agents, ok := apiResp.Data.([]interface{})
+	if !ok || len(agents) < 2 {
+		t.Fatalf("expected at least 2 agents, got %T len=%d", apiResp.Data, len(agents))
+	}
+}
+
+func TestGovernance_HighRiskTask_RequiresApproval(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+
+	resp, err := http.Post(
+		srv.URL+"/api/v1/control/tasks",
+		"application/json",
+		strings.NewReader(`{"taskId":"task-risk-1","objective":"执行关键策略变更","priority":"p0","assignedAgentId":"agent-risk-reviewer","estimatedCost":900,"actor":"bob"}`),
+	)
+	if err != nil {
+		t.Fatalf("POST tasks: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status=%d want=%d", resp.StatusCode, http.StatusCreated)
+	}
+
+	approveReq, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/control/tasks/task-risk-1/approvals/approve?actor=carol", nil)
+	approveResp, err := http.DefaultClient.Do(approveReq)
+	if err != nil {
+		t.Fatalf("POST approval: %v", err)
+	}
+	defer approveResp.Body.Close()
+	if approveResp.StatusCode != http.StatusOK {
+		t.Fatalf("approve status=%d want=%d", approveResp.StatusCode, http.StatusOK)
+	}
+
+	cardsBody := get(t, srv, "/api/v1/control/decision-cards", http.StatusOK)
+	var cardsResp internal.APIResponse
+	if err := json.Unmarshal(cardsBody, &cardsResp); err != nil {
+		t.Fatalf("unmarshal cards: %v", err)
+	}
+	cards, ok := cardsResp.Data.([]interface{})
+	if !ok || len(cards) == 0 {
+		t.Fatalf("expected decision cards for high-risk task")
+	}
+}
+
+func TestGovernance_AuditAndBudgetEndpoints(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+
+	_, _ = http.Post(
+		srv.URL+"/api/v1/control/tasks",
+		"application/json",
+		strings.NewReader(`{"taskId":"task-audit-1","objective":"审计链路验证","priority":"p2","assignedAgentId":"agent-risk-reviewer","estimatedCost":120,"actor":"dave"}`),
+	)
+
+	auditBody := get(t, srv, "/api/v1/control/audit/events", http.StatusOK)
+	var auditResp internal.APIResponse
+	if err := json.Unmarshal(auditBody, &auditResp); err != nil {
+		t.Fatalf("unmarshal audit: %v", err)
+	}
+	if events, ok := auditResp.Data.([]interface{}); !ok || len(events) == 0 {
+		t.Fatalf("expected non-empty audit events")
+	}
+
+	budgetBody := get(t, srv, "/api/v1/control/budgets", http.StatusOK)
+	var budgetResp internal.APIResponse
+	if err := json.Unmarshal(budgetBody, &budgetResp); err != nil {
+		t.Fatalf("unmarshal budget: %v", err)
+	}
+	if ledgers, ok := budgetResp.Data.([]interface{}); !ok || len(ledgers) == 0 {
+		t.Fatalf("expected budget ledgers")
+	}
+}
