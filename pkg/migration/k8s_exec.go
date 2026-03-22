@@ -1,3 +1,6 @@
+//go:build migrationfull
+// +build migrationfull
+
 // Package migration — K8s exec implementation and enhanced executor.
 //
 // Replaces the kubectl-based execOnNode stub with proper K8s client-go

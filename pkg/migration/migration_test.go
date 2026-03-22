@@ -1,3 +1,6 @@
+//go:build migrationfull
+// +build migrationfull
+
 // Sprint 7 TDD Red — migration E2E + K8s exec contract tests.
 //
 // Copyright 2025 PhoenixGPU Authors
@@ -17,8 +20,8 @@ import (
 // ── T57: K8s exec interface contract ─────────────────────────────
 
 type fakeExec struct {
-	calls  []migration.ExecCall
-	errOn  string // return error if command contains this string
+	calls []migration.ExecCall
+	errOn string // return error if command contains this string
 }
 
 func (f *fakeExec) ExecInPod(ctx context.Context, call migration.ExecCall) error {

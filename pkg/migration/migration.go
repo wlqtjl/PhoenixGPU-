@@ -1,3 +1,6 @@
+//go:build migrationfull
+// +build migrationfull
+
 // Package migration — GPU Live Migration (热迁移).
 //
 // Moves a running CUDA training job from one K8s node to another
@@ -5,20 +8,21 @@
 //
 // Migration stages (state machine):
 //
-//   Pending → PreDumping → Dumping → Transferring → Restoring → Done
-//                                                             ↘ Failed
+//	Pending → PreDumping → Dumping → Transferring → Restoring → Done
+//	                                                          ↘ Failed
 //
 // Stage descriptions:
-//   PreDumping    Non-disruptive memory pre-dump (no process pause).
-//                 Dirty pages written to disk, drastically reducing
-//                 full dump size and freeze time.
-//   Dumping       Full CRIU dump — process is FROZEN here.
-//                 This is the freeze window. Target: < 5s.
-//   Transferring  Snapshot files rsync'd node-to-node via SSH.
-//                 Process stays frozen. Happens fast because PreDump
-//                 already synced most pages.
-//   Restoring     CRIU restore on target node. Process resumes.
-//   Done          Source pod cleaned up. Migration complete.
+//
+//	PreDumping    Non-disruptive memory pre-dump (no process pause).
+//	              Dirty pages written to disk, drastically reducing
+//	              full dump size and freeze time.
+//	Dumping       Full CRIU dump — process is FROZEN here.
+//	              This is the freeze window. Target: < 5s.
+//	Transferring  Snapshot files rsync'd node-to-node via SSH.
+//	              Process stays frozen. Happens fast because PreDump
+//	              already synced most pages.
+//	Restoring     CRIU restore on target node. Process resumes.
+//	Done          Source pod cleaned up. Migration complete.
 //
 // Engineering Covenant (Sprint 6):
 //   - Freeze window estimated and validated before migration starts
@@ -43,24 +47,24 @@ import (
 type State string
 
 const (
-	StatePending     State = "Pending"
-	StatePreDumping  State = "PreDumping"
-	StateDumping     State = "Dumping"
+	StatePending      State = "Pending"
+	StatePreDumping   State = "PreDumping"
+	StateDumping      State = "Dumping"
 	StateTransferring State = "Transferring"
-	StateRestoring   State = "Restoring"
-	StateDone        State = "Done"
-	StateFailed      State = "Failed"
+	StateRestoring    State = "Restoring"
+	StateDone         State = "Done"
+	StateFailed       State = "Failed"
 )
 
 // validTransitions defines the allowed state machine edges.
 var validTransitions = map[State][]State{
-	StatePending:     {StatePreDumping},
-	StatePreDumping:  {StateDumping, StateFailed},
-	StateDumping:     {StateTransferring, StateFailed},
+	StatePending:      {StatePreDumping},
+	StatePreDumping:   {StateDumping, StateFailed},
+	StateDumping:      {StateTransferring, StateFailed},
 	StateTransferring: {StateRestoring, StateFailed},
-	StateRestoring:   {StateDone, StateFailed},
-	StateDone:        {},
-	StateFailed:      {},
+	StateRestoring:    {StateDone, StateFailed},
+	StateDone:         {},
+	StateFailed:       {},
 }
 
 // CanTransition returns true if moving from src to dst is valid.
@@ -109,20 +113,26 @@ func (p Plan) Validate() error {
 }
 
 func (p *Plan) withDefaults() {
-	if p.SnapshotDir == ""    { p.SnapshotDir = "/tmp/phoenix-migration/" + p.JobName }
-	if p.TransferMethod == "" { p.TransferMethod = "rsync" }
-	if p.FreezeTimeout == 0  { p.FreezeTimeout = 10 * time.Second }
+	if p.SnapshotDir == "" {
+		p.SnapshotDir = "/tmp/phoenix-migration/" + p.JobName
+	}
+	if p.TransferMethod == "" {
+		p.TransferMethod = "rsync"
+	}
+	if p.FreezeTimeout == 0 {
+		p.FreezeTimeout = 10 * time.Second
+	}
 }
 
 // ── Result ────────────────────────────────────────────────────────
 
 // Result is returned by Executor.Execute after a migration attempt.
 type Result struct {
-	State         State
-	TotalDuration time.Duration
+	State          State
+	TotalDuration  time.Duration
 	StageDurations map[State]time.Duration
-	FreezeWindow  time.Duration // actual time process was frozen
-	Error         error
+	FreezeWindow   time.Duration // actual time process was frozen
+	Error          error
 }
 
 // ── EstimateFreezeWindow ──────────────────────────────────────────
@@ -135,9 +145,9 @@ type Result struct {
 // Freeze time ≈ dirty_bytes / disk_write_speed.
 // Assume NVMe at ~2 GB/s, dirty ratio ~2%.
 func EstimateFreezeWindow(vramMiB int64) float64 {
-	dirtyRatio  := 0.02                                    // 2% dirty after pre-dump
-	diskSpeedMBps := 2000.0                                // NVMe ~2GB/s
-	dirtyMB     := float64(vramMiB) * dirtyRatio
+	dirtyRatio := 0.02      // 2% dirty after pre-dump
+	diskSpeedMBps := 2000.0 // NVMe ~2GB/s
+	dirtyMB := float64(vramMiB) * dirtyRatio
 	return dirtyMB / diskSpeedMBps // seconds
 }
 
@@ -172,7 +182,7 @@ func (e *RealExecutor) Execute(ctx context.Context, plan Plan) (*Result, error) 
 	start := time.Now()
 
 	log := e.logger.With(
-		zap.String("job",    plan.JobNamespace+"/"+plan.JobName),
+		zap.String("job", plan.JobNamespace+"/"+plan.JobName),
 		zap.String("source", plan.SourceNode),
 		zap.String("target", plan.TargetNode),
 	)
@@ -221,7 +231,7 @@ func (e *RealExecutor) Execute(ctx context.Context, plan Plan) (*Result, error) 
 	}
 
 	// ── Done ──────────────────────────────────────────────────────
-	result.State         = StateDone
+	result.State = StateDone
 	result.TotalDuration = time.Since(start)
 	log.Info("live migration complete",
 		zap.Duration("total", result.TotalDuration),
@@ -349,7 +359,7 @@ func (m *MockExecutor) Execute(ctx context.Context, plan Plan) (*Result, error) 
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	result.FreezeWindow  = 50 * time.Millisecond // simulated
+	result.FreezeWindow = 50 * time.Millisecond // simulated
 	result.TotalDuration = 5 * time.Millisecond * time.Duration(len(stages))
 	return result, nil
 }

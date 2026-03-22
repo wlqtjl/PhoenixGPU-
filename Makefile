@@ -13,7 +13,8 @@ CGO_ENABLED  := 0
 
 COMPONENTS := phoenix-controller device-plugin scheduler-extender billing-engine webhook
 
-.PHONY: all build test lint fmt vet clean docker-build helm-lint kind-up kind-down help
+.PHONY: all build test lint fmt vet clean docker-build helm-lint kind-up kind-down help \
+	quality-api-server quality-api-server-race quality-api-server-bench
 
 ## ── Default ─────────────────────────────────────────────────────
 all: lint test build
@@ -49,6 +50,19 @@ test-short:
 
 test-verbose:
 	$(GO) test ./... -v -race -timeout=5m
+
+quality-api-server:
+	@echo "→ API Server quality baseline (L1/L2)..."
+	$(GO) test ./cmd/api-server -count=1 -coverprofile=coverage-api-server.out
+	@$(GO) tool cover -func=coverage-api-server.out | tail -1
+
+quality-api-server-race:
+	@echo "→ API Server race check (L3)..."
+	$(GO) test -race ./cmd/api-server -count=1
+
+quality-api-server-bench:
+	@echo "→ API Server benchmark smoke (L4)..."
+	$(GO) test ./cmd/api-server -run '^$$' -bench . -benchmem -count=1
 
 test-e2e:
 	@echo "→ Running E2E tests (requires running cluster)..."

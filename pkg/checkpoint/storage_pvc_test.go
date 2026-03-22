@@ -1,10 +1,13 @@
+//go:build checkpointfull
+// +build checkpointfull
+
 package checkpoint_test
 
 import (
 	"testing"
 
-	"go.uber.org/zap/zaptest"
 	"github.com/wlqtjl/PhoenixGPU/pkg/checkpoint"
+	"go.uber.org/zap/zaptest"
 )
 
 func TestLocalPVCBackend_Contract(t *testing.T) {

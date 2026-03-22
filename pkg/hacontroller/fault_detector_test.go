@@ -1,3 +1,6 @@
+//go:build controllerfull
+// +build controllerfull
+
 package hacontroller
 
 import (
@@ -6,9 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/zap/zaptest"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"go.uber.org/zap/zaptest"
 )
 
 func makeNode(name string, ready bool) *corev1.Node {

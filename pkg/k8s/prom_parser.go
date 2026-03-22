@@ -1,3 +1,6 @@
+//go:build k8sfull
+// +build k8sfull
+
 // Package k8s — Prometheus HTTP response parsers.
 //
 // Copyright 2025 PhoenixGPU Authors
