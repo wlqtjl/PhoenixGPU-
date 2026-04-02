@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"time"
 
-	apitypes "github.com/wlqtjl/PhoenixGPU/cmd/api-server/internal"
+	apitypes "github.com/wlqtjl/PhoenixGPU/pkg/types"
 )
 
 // promInstantResponse is the JSON shape of a Prometheus instant query result.
