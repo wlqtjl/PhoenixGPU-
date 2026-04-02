@@ -1,0 +1,16 @@
+# Build artifacts
+bin/
+libvgpu/build/
+
+# Test artifacts
+coverage.out
+coverage-*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
