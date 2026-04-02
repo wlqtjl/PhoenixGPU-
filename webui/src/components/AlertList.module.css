@@ -1,0 +1,86 @@
+/* AlertList.module.css — Alert feed styling
+ * Uses design tokens from design-system.css
+ */
+
+.empty {
+  text-align: center;
+  color: var(--text-muted);
+  padding: var(--sp-8) 0;
+  font-size: 0.9rem;
+}
+
+.item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border-dim);
+  transition: background var(--t-fast) var(--ease-out);
+}
+
+.item:hover {
+  background: var(--bg-subtle);
+}
+
+.item:last-child {
+  border-bottom: none;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+}
+
+.tenant {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 2px;
+}
+
+.msg {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--sp-1);
+  flex-shrink: 0;
+}
+
+.time {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.resolveBtn {
+  font-family: var(--font-body);
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--green);
+  background: transparent;
+  border: 1px solid var(--green-dim);
+  border-radius: var(--r-sm);
+  padding: 2px var(--sp-2);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease-out),
+              border-color var(--t-fast) var(--ease-out);
+}
+
+.resolveBtn:hover {
+  background: var(--green-dim);
+  border-color: var(--green);
+}

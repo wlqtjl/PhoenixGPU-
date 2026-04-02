@@ -1,0 +1,1 @@
+/usr/bin/cc -fPIC  -Wall -Wextra -fPIC -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/vgpu.dir/link.d -shared -Wl,-soname,libvgpu.so.1 -o libvgpu.so.0.1.0 CMakeFiles/vgpu.dir/src/hook.c.o CMakeFiles/vgpu.dir/src/cuda_hook.c.o CMakeFiles/vgpu.dir/src/nvml_hook.c.o CMakeFiles/vgpu.dir/src/phoenix_meter.c.o  -ldl -lpthread

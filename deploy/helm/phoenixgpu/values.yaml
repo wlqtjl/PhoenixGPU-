@@ -71,6 +71,19 @@ billingEngine:
     name: phoenixgpu
     secretName: phoenixgpu-db-secret
 
+# ── API Server ────────────────────────────────────────────────────
+apiServer:
+  image:
+    repository: api-server
+    tag: latest
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
 # ── Bundled PostgreSQL (for quick start) ─────────────────────────
 postgresql:
   enabled: true   # Set to false to use external DB

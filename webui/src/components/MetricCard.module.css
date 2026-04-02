@@ -1,0 +1,53 @@
+/* MetricCard.module.css — KPI card styling
+ * Uses design tokens from design-system.css
+ */
+
+.card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--r-lg);
+  padding: var(--sp-5) var(--sp-6);
+  transition: border-color var(--t-mid) var(--ease-out),
+              box-shadow var(--t-mid) var(--ease-out);
+}
+
+.card:hover {
+  border-color: var(--border-mid);
+  box-shadow: var(--shadow-sm);
+}
+
+.label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: var(--sp-1);
+}
+
+.value {
+  font-family: var(--font-mono);
+  font-size: 1.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+
+.sub {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: var(--sp-1);
+}
+
+/* ── Accent variants ─────────────────────────────────────────── */
+.amber  { border-left: 3px solid var(--amber-mid); }
+.green  { border-left: 3px solid var(--green); }
+.red    { border-left: 3px solid var(--red); }
+.blue   { border-left: 3px solid var(--blue); }
+.purple { border-left: 3px solid var(--purple); }
+
+.val-amber  { color: var(--amber-bright); }
+.val-green  { color: var(--green); }
+.val-red    { color: var(--text-red); }
+.val-blue   { color: var(--blue); }
+.val-purple { color: var(--purple); }
