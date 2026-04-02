@@ -14,6 +14,7 @@
   --bg-subtle:     #1E2230;
 
   /* ── Accent: Amber (GPU heat) ─────────────────────────────── */
+  --amber:         #F59E0B;
   --amber-dim:     #78450A;
   --amber-mid:     #D97706;
   --amber-bright:  #F59E0B;
@@ -45,6 +46,7 @@
   /* ── Typography ──────────────────────────────────────────── */
   --font-body:  'DM Sans', -apple-system, sans-serif;
   --font-mono:  'JetBrains Mono', 'Fira Code', monospace;
+  --mono:       'JetBrains Mono', 'Fira Code', monospace;
 
   /* ── Spacing scale ───────────────────────────────────────── */
   --sp-1: 4px;   --sp-2: 8px;   --sp-3: 12px;
@@ -110,6 +112,46 @@ a:hover { color: var(--amber-glow); }
 .text-red   { color: var(--text-red); }
 .text-muted { color: var(--text-muted); }
 .text-secondary { color: var(--text-secondary); }
+
+/* ── Pill badges ─────────────────────────────────────────────── */
+.pill {
+  display:        inline-flex;
+  align-items:    center;
+  padding:        2px 8px;
+  border-radius:  99px;
+  font-size:      11px;
+  font-weight:    500;
+  letter-spacing: 0.02em;
+  white-space:    nowrap;
+}
+.pillAmber  { background: rgba(245,158,11,0.15); color: var(--amber-bright); border: 1px solid rgba(245,158,11,0.25); }
+.pillGreen  { background: rgba(16,185,129,0.15);  color: var(--green);        border: 1px solid rgba(16,185,129,0.25); }
+.pillRed    { background: rgba(239,68,68,0.15);   color: var(--red);          border: 1px solid rgba(239,68,68,0.25); }
+.pillBlue   { background: rgba(59,130,246,0.15);  color: var(--blue);         border: 1px solid rgba(59,130,246,0.25); }
+.pillPurple { background: rgba(139,92,246,0.15);  color: var(--purple);       border: 1px solid rgba(139,92,246,0.25); }
+
+/* ── Navigation link (used by NavLink in App.tsx) ────────────── */
+.nav-item {
+  display:        flex;
+  align-items:    center;
+  gap:            var(--sp-2);
+  padding:        var(--sp-2) var(--sp-3);
+  border-radius:  var(--r-md);
+  font-size:      13px;
+  color:          var(--text-secondary);
+  text-decoration: none;
+  transition:     background var(--t-fast) var(--ease-out),
+                  color var(--t-fast) var(--ease-out);
+  cursor:         pointer;
+}
+.nav-item:hover {
+  background: var(--bg-elevated);
+  color:      var(--text-primary);
+}
+.nav-item.active {
+  background: var(--bg-overlay);
+  color:      var(--amber-bright);
+}
 
 /* ── Scrollbar ───────────────────────────────────────────────── */
 ::-webkit-scrollbar       { width: 6px; height: 6px; }

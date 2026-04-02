@@ -30,16 +30,6 @@ type CRIUCheckpointer struct {
 	logger        *zap.Logger
 }
 
-// SnapshotMeta holds metadata about a checkpoint snapshot.
-type SnapshotMeta struct {
-	JobName   string
-	Namespace string
-	PID       int
-	Dir       string
-	CreatedAt time.Time
-	SizeBytes int64
-}
-
 // Checkpointer is the interface all checkpoint backends must implement.
 type Checkpointer interface {
 	// Dump freezes the process and writes checkpoint files to Dir.

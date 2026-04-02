@@ -83,10 +83,43 @@ type Uploader struct {
 	cancel context.CancelFunc
 }
 
+// Prometheus (Covenant §4) — registered once, reused across instances.
+var (
+	uploaderMetricsOnce sync.Once
+
+	sharedTaskQueueDepth   prometheus.Gauge
+	sharedUploadSuccessful prometheus.Counter
+	sharedUploadFailed     *prometheus.CounterVec
+	sharedUploadDuration   *prometheus.HistogramVec
+)
+
+func initUploaderMetrics() {
+	uploaderMetricsOnce.Do(func() {
+		sharedTaskQueueDepth = promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "phoenixgpu_uploader_queue_depth",
+			Help: "Number of snapshot upload tasks waiting in queue",
+		})
+		sharedUploadSuccessful = promauto.NewCounter(prometheus.CounterOpts{
+			Name: "phoenixgpu_uploader_success_total",
+			Help: "Total successfully uploaded snapshots",
+		})
+		sharedUploadFailed = promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "phoenixgpu_uploader_failure_total",
+			Help: "Total failed snapshot uploads by reason",
+		}, []string{"reason"})
+		sharedUploadDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "phoenixgpu_uploader_duration_seconds",
+			Help:    "End-to-end upload duration per snapshot",
+			Buckets: []float64{5, 15, 30, 60, 120, 300},
+		}, []string{"result"})
+	})
+}
+
 // NewUploader creates and starts the Worker Pool.
 // Call Shutdown() to drain and stop workers gracefully.
 func NewUploader(backend StorageBackend, cfg UploaderConfig, logger *zap.Logger) *Uploader {
 	cfg = cfg.withDefaults()
+	initUploaderMetrics()
 
 	u := &Uploader{
 		backend: backend,
@@ -94,23 +127,10 @@ func NewUploader(backend StorageBackend, cfg UploaderConfig, logger *zap.Logger)
 		logger:  logger,
 		tasks:   make(chan UploadTask, cfg.ChannelBuffer),
 
-		taskQueueDepth: promauto.NewGauge(prometheus.GaugeOpts{
-			Name: "phoenixgpu_uploader_queue_depth",
-			Help: "Number of snapshot upload tasks waiting in queue",
-		}),
-		uploadSuccessful: promauto.NewCounter(prometheus.CounterOpts{
-			Name: "phoenixgpu_uploader_success_total",
-			Help: "Total successfully uploaded snapshots",
-		}),
-		uploadFailed: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "phoenixgpu_uploader_failure_total",
-			Help: "Total failed snapshot uploads by reason",
-		}, []string{"reason"}),
-		uploadDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "phoenixgpu_uploader_duration_seconds",
-			Help:    "End-to-end upload duration per snapshot",
-			Buckets: []float64{5, 15, 30, 60, 120, 300},
-		}, []string{"result"}),
+		taskQueueDepth:   sharedTaskQueueDepth,
+		uploadSuccessful: sharedUploadSuccessful,
+		uploadFailed:     sharedUploadFailed,
+		uploadDuration:   sharedUploadDuration,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
