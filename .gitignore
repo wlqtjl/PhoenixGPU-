@@ -17,3 +17,5 @@ Thumbs.db
 
 # Node
 webui/node_modules/
+phoenix-controller
+bin/
