@@ -1,6 +1,10 @@
 # Build artifacts
 bin/
 libvgpu/build/
+billing-engine
+device-plugin
+scheduler-extender
+webhook
 
 # Test artifacts
 coverage.out

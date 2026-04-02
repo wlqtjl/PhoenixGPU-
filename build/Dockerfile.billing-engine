@@ -1,0 +1,28 @@
+# Multi-stage build: phoenix-billing-engine
+# Final image: ~15MiB (distroless/static)
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG DATE=unknown
+
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build \
+      -trimpath \
+      -tags "billingenginefull,billingfull" \
+      -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
+      -o /billing-engine \
+      ./cmd/billing-engine/...
+
+FROM gcr.io/distroless/static-debian12:nonroot
+
+COPY --from=builder /billing-engine /billing-engine
+
+EXPOSE 8085 8086
+
+ENTRYPOINT ["/billing-engine"]
