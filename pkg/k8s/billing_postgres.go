@@ -49,10 +49,16 @@ func (q *PostgresBillingQuerier) QueryBillingByDepartment(ctx context.Context, p
 			usedPct = status.UsedPct
 		}
 
-		// Estimate TFlops·h and cost from GPU hours using average GPU spec
-		// (accurate per-record computation is done by billing.Engine.Compute)
-		tflopsHours := gpuHours * 312 // A100 80GB default
-		costCNY := gpuHours * 35      // A100 80GB default rate
+		// SumByDepartment returns aggregate GPU hours but not per-model
+		// TFlops/cost breakdowns. Use A100 80GB defaults as a rough
+		// estimate; accurate per-record TFlops·h is computed by
+		// billing.Engine.Compute at ingestion time.
+		const (
+			defaultTFlopsPerGPU    = 312.0 // NVIDIA A100 80GB FP16 peak TFlops
+			defaultCNYPerGPUHour   = 35.0  // A100 80GB internal cost rate (CNY/GPU·h)
+		)
+		tflopsHours := gpuHours * defaultTFlopsPerGPU
+		costCNY := gpuHours * defaultCNYPerGPUHour
 
 		result = append(result, apitypes.DeptBilling{
 			Department:  dept,
