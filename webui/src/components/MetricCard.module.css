@@ -1,0 +1,36 @@
+.card {
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 0.75rem;
+  padding: 0.9rem;
+  background: var(--panel-bg, #fff);
+}
+
+.label {
+  font-size: 0.82rem;
+  color: var(--text-muted, #6b7280);
+}
+
+.value {
+  margin-top: 0.25rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text-primary, #111827);
+}
+
+.sub {
+  margin-top: 0.2rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary, #4b5563);
+}
+
+.amber { border-left: 4px solid #f59e0b; }
+.green { border-left: 4px solid #10b981; }
+.red { border-left: 4px solid #ef4444; }
+.blue { border-left: 4px solid #3b82f6; }
+.purple { border-left: 4px solid #8b5cf6; }
+
+.val-amber { color: #b45309; }
+.val-green { color: #047857; }
+.val-red { color: #b91c1c; }
+.val-blue { color: #1d4ed8; }
+.val-purple { color: #6d28d9; }

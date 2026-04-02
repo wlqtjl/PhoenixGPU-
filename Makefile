@@ -11,7 +11,7 @@ GO           := go
 GOFLAGS      := -trimpath
 CGO_ENABLED  := 0
 
-COMPONENTS := phoenix-controller device-plugin scheduler-extender billing-engine webhook
+COMPONENTS := api-server phoenix-controller device-plugin scheduler-extender billing-engine webhook
 
 .PHONY: all build test lint fmt vet clean docker-build helm-lint kind-up kind-down help \
 	quality-api-server quality-api-server-race quality-api-server-bench
@@ -28,7 +28,7 @@ build-%:
 	CGO_ENABLED=$(CGO_ENABLED) $(GO) build $(GOFLAGS) \
 		-ldflags "$(LDFLAGS)" \
 		-o $(BINARY_DIR)/$* \
-		./cmd/$*/...
+		./cmd/$*
 	@echo "  ✓ $(BINARY_DIR)/$*"
 
 ## libvgpu (C/C++ CUDA interception layer)
