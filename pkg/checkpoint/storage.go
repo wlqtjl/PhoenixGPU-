@@ -27,8 +27,13 @@ type SnapshotMeta struct {
 	NodeName string
 	PodName  string
 	GPUModel string
-	PID      int    // process ID of the checkpointed process
-	Dir      string // local directory containing the checkpoint files
+	// PID is the process ID of the checkpointed process on the source node.
+	// Populated by CRIUCheckpointer during Dump so that StorageBackend.Save
+	// can record which process was frozen (useful for audit and incremental diff).
+	PID int
+	// Dir is the local filesystem path written by the CRIU dump.
+	// StorageBackend.Save uploads this directory and may clear it afterwards.
+	Dir string
 
 	// Timing
 	CreatedAt  time.Time
