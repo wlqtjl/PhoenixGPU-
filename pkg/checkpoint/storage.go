@@ -27,6 +27,8 @@ type SnapshotMeta struct {
 	NodeName string
 	PodName  string
 	GPUModel string
+	PID      int    // process ID of the checkpointed process
+	Dir      string // local directory containing the checkpoint files
 
 	// Timing
 	CreatedAt  time.Time

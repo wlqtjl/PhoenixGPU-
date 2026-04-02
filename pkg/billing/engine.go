@@ -12,6 +12,7 @@ package billing
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -109,6 +110,9 @@ type AlertHook func(ctx context.Context, status QuotaStatus)
 
 // NewEngine creates a billing Engine.
 func NewEngine(store Store, logger *zap.Logger) *Engine {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Engine{store: store, logger: logger}
 }
 
@@ -201,6 +205,7 @@ func (e *Engine) checkQuota(ctx context.Context, r UsageRecord) {
 
 // MemoryStore is an in-memory Store implementation for unit testing.
 type MemoryStore struct {
+	mu      sync.Mutex
 	records []UsageRecord
 	quotas  map[string]QuotaPolicy
 }
@@ -210,11 +215,15 @@ func NewMemoryStore() *MemoryStore {
 }
 
 func (m *MemoryStore) SaveRecord(_ context.Context, r UsageRecord) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.records = append(m.records, r)
 	return nil
 }
 
 func (m *MemoryStore) GetQuotaStatus(_ context.Context, tenantID, _ string) (*QuotaStatus, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	policy, ok := m.quotas[tenantID]
 	if !ok {
 		return nil, nil
@@ -229,6 +238,8 @@ func (m *MemoryStore) GetQuotaStatus(_ context.Context, tenantID, _ string) (*Qu
 }
 
 func (m *MemoryStore) ListRecords(_ context.Context, f RecordFilter) ([]UsageRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var out []UsageRecord
 	for _, r := range m.records {
 		if f.Department != "" && r.Department != f.Department {
@@ -243,6 +254,8 @@ func (m *MemoryStore) ListRecords(_ context.Context, f RecordFilter) ([]UsageRec
 }
 
 func (m *MemoryStore) SumByDepartment(_ context.Context, _ string) (map[string]float64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	totals := make(map[string]float64)
 	for _, r := range m.records {
 		totals[r.Department] += r.GPUHours
