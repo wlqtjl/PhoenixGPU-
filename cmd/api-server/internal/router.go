@@ -45,6 +45,7 @@ type RouterConfig struct {
 	EnableMock        bool
 	EnableMigration   bool
 	MigrationExecutor MigrationExecutor
+	GovernanceService *GovernanceService
 }
 
 type Logger interface {
@@ -81,6 +82,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	h := &handlers{client: cfg.K8sClient, log: cfg.Logger}
 	mh := newMigrationHandlers(cfg.MigrationExecutor, cfg.Logger)
+	if cfg.GovernanceService == nil {
+		cfg.GovernanceService = NewGovernanceService()
+	}
+	gh := &governanceHandlers{service: cfg.GovernanceService, log: cfg.Logger}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -103,6 +108,24 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	mux.Handle("/api/v1/billing/departments", method(http.MethodGet, http.HandlerFunc(h.listBillingDepartments)))
 	mux.Handle("/api/v1/billing/records", method(http.MethodGet, http.HandlerFunc(h.listBillingRecords)))
 	mux.Handle("/api/v1/alerts", method(http.MethodGet, http.HandlerFunc(h.listAlerts)))
+
+	mux.Handle("/api/v1/control/agents", withMethods([]string{http.MethodGet, http.MethodPost}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			gh.listAgents(w, r)
+			return
+		}
+		gh.createAgent(w, r)
+	})))
+	mux.Handle("/api/v1/control/tasks", withMethods([]string{http.MethodGet, http.MethodPost}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			gh.listTasks(w, r)
+			return
+		}
+		gh.createTask(w, r)
+	})))
+	mux.Handle("/api/v1/control/audit/events", method(http.MethodGet, http.HandlerFunc(gh.listAuditEvents)))
+	mux.Handle("/api/v1/control/decision-cards", method(http.MethodGet, http.HandlerFunc(gh.listDecisionCards)))
+	mux.Handle("/api/v1/control/budgets", method(http.MethodGet, http.HandlerFunc(gh.listBudgetLedgers)))
 
 	mux.Handle("/api/v1/jobs/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/migrate") {
@@ -134,6 +157,14 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			return
 		}
 		method(http.MethodPost, http.HandlerFunc(h.resolveAlert)).ServeHTTP(w, r)
+	}))
+
+	mux.Handle("/api/v1/control/tasks/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/approvals/approve") {
+			method(http.MethodPost, http.HandlerFunc(gh.approveTask)).ServeHTTP(w, r)
+			return
+		}
+		http.NotFound(w, r)
 	}))
 
 	return withRecovery(requestLogger(cfg.Logger, withMetrics(mux)))
