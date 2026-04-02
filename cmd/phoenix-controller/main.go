@@ -11,15 +11,20 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
 
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	ctrlzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/wlqtjl/PhoenixGPU/pkg/checkpoint"
 	"github.com/wlqtjl/PhoenixGPU/pkg/hacontroller"
@@ -92,7 +97,7 @@ func run(opts *options) error {
 	// ── Controller-runtime Manager ────────────────────────────────
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme(),
-		MetricsBindAddress:     opts.metricsAddr,
+		Metrics:                metricsserver.Options{BindAddress: opts.metricsAddr},
 		HealthProbeBindAddress: opts.probeAddr,
 		LeaderElection:         opts.leaderElection,
 		LeaderElectionID:       opts.leaderElectionID,
