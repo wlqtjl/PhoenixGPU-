@@ -189,6 +189,9 @@ type RealK8sClient struct {
 	// Each cache auto-refreshes every 15s independently
 	utilCaches map[string]*MetricsCache
 	mu         sync.RWMutex
+
+	// Optional billing data source (nil = use fake data)
+	billingQuerier BillingQuerier
 }
 
 // PhoenixJobGVR is the GroupVersionResource for PhoenixJob CRD.
@@ -344,15 +347,31 @@ func (c *RealK8sClient) TriggerCheckpoint(ctx context.Context, namespace, name s
 	return nil
 }
 
-func (c *RealK8sClient) GetBillingByDepartment(_ context.Context, period string) ([]apitypes.DeptBilling, error) {
-	// TODO Sprint 6: query TimescaleDB billing_records table
-	// For Sprint 5: return computed data from PhoenixJob annotations
-	c.logger.Debug("GetBillingByDepartment: using mock data pending DB integration",
+func (c *RealK8sClient) GetBillingByDepartment(ctx context.Context, period string) ([]apitypes.DeptBilling, error) {
+	if c.billingQuerier != nil {
+		results, err := c.billingQuerier.QueryBillingByDepartment(ctx, period)
+		if err != nil {
+			c.logger.Warn("billing query failed, falling back to mock data",
+				zap.String("period", period), zap.Error(err))
+			return fakeBillingDepartments(), nil
+		}
+		return results, nil
+	}
+	c.logger.Debug("GetBillingByDepartment: no billing querier configured, using mock data",
 		zap.String("period", period))
 	return fakeBillingDepartments(), nil
 }
 
-func (c *RealK8sClient) GetBillingRecords(_ context.Context, department string) ([]apitypes.BillingRecord, error) {
+func (c *RealK8sClient) GetBillingRecords(ctx context.Context, department string) ([]apitypes.BillingRecord, error) {
+	if c.billingQuerier != nil {
+		results, err := c.billingQuerier.QueryBillingRecords(ctx, department)
+		if err != nil {
+			c.logger.Warn("billing records query failed, falling back to mock data",
+				zap.String("department", department), zap.Error(err))
+		} else {
+			return results, nil
+		}
+	}
 	all := fakeBillingRecords()
 	if department == "" {
 		return all, nil

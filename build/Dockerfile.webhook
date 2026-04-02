@@ -1,0 +1,28 @@
+# Multi-stage build: phoenix-webhook
+# Final image: ~15MiB (distroless/static)
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG DATE=unknown
+
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build \
+      -trimpath \
+      -tags webhookfull \
+      -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
+      -o /webhook \
+      ./cmd/webhook/...
+
+FROM gcr.io/distroless/static-debian12:nonroot
+
+COPY --from=builder /webhook /webhook
+
+EXPOSE 9443
+
+ENTRYPOINT ["/webhook"]

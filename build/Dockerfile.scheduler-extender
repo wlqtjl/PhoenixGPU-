@@ -1,0 +1,28 @@
+# Multi-stage build: phoenix-scheduler-extender
+# Final image: ~15MiB (distroless/static)
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG DATE=unknown
+
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build \
+      -trimpath \
+      -tags schedulerfull \
+      -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
+      -o /scheduler-extender \
+      ./cmd/scheduler-extender/...
+
+FROM gcr.io/distroless/static-debian12:nonroot
+
+COPY --from=builder /scheduler-extender /scheduler-extender
+
+EXPOSE 8888 8084
+
+ENTRYPOINT ["/scheduler-extender"]
