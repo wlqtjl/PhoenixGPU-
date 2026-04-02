@@ -81,6 +81,13 @@ postgresql:
     persistence:
       size: 20Gi
 
+
+# ── API Server ───────────────────────────────────────────────────
+apiServer:
+  image:
+    repository: api-server
+    tag: latest
+
 # ── WebUI ─────────────────────────────────────────────────────────
 webui:
   enabled: true

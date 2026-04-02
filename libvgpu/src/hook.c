@@ -29,9 +29,6 @@
 #include <sys/mman.h>
 
 #include "libvgpu.h"
-#include "cuda_hook.h"
-#include "nvml_hook.h"
-#include "phoenix_meter.h"
 
 /* ── Shared memory layout ────────────────────────────────────────
  * /tmp/phoenix-{pod-uid}.shm  (per-container, per-GPU)

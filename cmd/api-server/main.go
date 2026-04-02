@@ -28,15 +28,27 @@ type opts struct {
 	enableMigration bool
 }
 
-func main() {
+func parseOpts(args []string) (*opts, bool, error) {
 	o := &opts{}
-	flag.StringVar(&o.addr, "addr", ":8090", "HTTP listen address")
-	flag.StringVar(&o.metricsAddr, "metrics-addr", "", "Legacy metrics listen address flag (accepted for backward compatibility; currently unused)")
-	flag.BoolVar(&o.mock, "mock", false, "Use fake data")
-	flag.BoolVar(&o.enableMigration, "enable-migration", false, "Enable migration APIs")
-	showVersion := flag.Bool("version", false, "Print version and exit")
-	flag.Parse()
-	if *showVersion {
+	fs := flag.NewFlagSet("api-server", flag.ContinueOnError)
+	fs.StringVar(&o.addr, "addr", ":8090", "HTTP listen address")
+	fs.StringVar(&o.metricsAddr, "metrics-addr", "", "Legacy metrics listen address flag (accepted for backward compatibility; currently unused)")
+	fs.BoolVar(&o.mock, "mock", false, "Use fake data")
+	fs.BoolVar(&o.enableMigration, "enable-migration", false, "Enable migration APIs")
+	showVersion := fs.Bool("version", false, "Print version and exit")
+	if err := fs.Parse(args); err != nil {
+		return nil, false, err
+	}
+	return o, *showVersion, nil
+}
+
+func main() {
+	o, showVersion, err := parseOpts(os.Args[1:])
+	if err != nil {
+		log.Printf("fatal: %v", err)
+		os.Exit(1)
+	}
+	if showVersion {
 		fmt.Printf("%s (%s, %s)\n", version, commit, date)
 		return
 	}
