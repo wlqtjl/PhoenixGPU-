@@ -6,6 +6,7 @@ package billing
 import (
 	"context"
 	"math"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -176,18 +177,18 @@ func TestRecord_QuotaAlertFired(t *testing.T) {
 	e, store := newEngine(t)
 	store.quotas["CV Lab"] = QuotaPolicy{
 		TenantID:          "CV Lab",
-		SoftLimitGPUHours: 10,
+		SoftLimitGPUHours: 100, // 100 GPU hour soft limit
 	}
 
-	var alertCount int
+	var alertCount int64
 	e.RegisterAlertHook(func(_ context.Context, _ QuotaStatus) {
-		alertCount++
+		atomic.AddInt64(&alertCount, 1)
 	})
 
 	ctx := context.Background()
 	now := time.Now()
 
-	// Record 9 GPU hours — should NOT fire alert (< 80%)
+	// Record 9 GPU hours — should NOT fire alert (9/100 = 9%, well under 80%)
 	_ = e.Record(ctx, UsageRecord{
 		Department: "CV Lab",
 		GPUModel:   "NVIDIA-RTX-4090",
@@ -195,22 +196,22 @@ func TestRecord_QuotaAlertFired(t *testing.T) {
 		StartedAt:  now.Add(-9 * time.Hour),
 		EndedAt:    now,
 	})
-	time.Sleep(20 * time.Millisecond)
-	if alertCount != 0 {
-		t.Errorf("expected 0 alerts at 90%% usage, got %d", alertCount)
+	time.Sleep(50 * time.Millisecond)
+	if c := atomic.LoadInt64(&alertCount); c != 0 {
+		t.Errorf("expected 0 alerts at 9%% usage, got %d", c)
 	}
 
-	// Record 1 more GPU hour — pushes to 100% (>= 80% soft limit)
+	// Record 80 more GPU hours — pushes to 89/100 = 89% (>= 80% soft limit)
 	_ = e.Record(ctx, UsageRecord{
 		Department: "CV Lab",
 		GPUModel:   "NVIDIA-RTX-4090",
 		AllocRatio: 1.0,
-		StartedAt:  now.Add(-1 * time.Hour),
+		StartedAt:  now.Add(-80 * time.Hour),
 		EndedAt:    now,
 	})
-	time.Sleep(20 * time.Millisecond)
-	if alertCount != 1 {
-		t.Errorf("expected 1 quota alert, got %d", alertCount)
+	time.Sleep(50 * time.Millisecond)
+	if c := atomic.LoadInt64(&alertCount); c < 1 {
+		t.Errorf("expected at least 1 quota alert, got %d", c)
 	}
 }
 

@@ -1,139 +1,162 @@
 /*
- * nvml_hook.c — NVIDIA Management Library interception
+ * nvml_hook.c — NVML Interception Layer
+ *
+ * Intercepts NVML calls so that vGPU containers see virtualised
+ * memory and utilization values that match their configured quota,
+ * rather than the full physical GPU values.
  *
  * Derived from HAMi (https://github.com/Project-HAMi/HAMi)
  * Original Copyright: HAMi Authors, Apache License 2.0
  * Modifications Copyright 2025: PhoenixGPU Authors, Apache License 2.0
  *
- * Intercepts NVML memory-info and utilization queries so that
- * containers see only their allocated slice of GPU resources,
- * not the full physical device.
- *
- * When compiled without CUDA (PHOENIX_STUB_MODE), all functions are
- * safe no-ops so the library can be built and tested on non-GPU hosts.
+ * Modifications vs HAMi upstream:
+ *   - Virtualised memory reporting based on PHOENIX_VRAM_LIMIT_MB
+ *   - SM utilization sampling writes to shared memory for throttle
  */
 
-#define _GNU_SOURCE
-#include <dlfcn.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <dlfcn.h>
 #include <stdint.h>
+#include <pthread.h>
 
 #include "libvgpu.h"
 #include "nvml_hook.h"
 
-/* ── Real function pointers resolved at init ─────────────────── */
-static void *(*g_real_dlsym)(void *, const char *) = NULL;
-#ifndef PHOENIX_STUB_MODE
-static void  *g_nvml_lib = NULL;
-#endif
+/* ── NVML type definitions (no NVML headers required) ────────────*/
+typedef int nvmlReturn_t;
+typedef void *nvmlDevice_t;
 
-/* Simplified NVML types (avoid requiring NVML headers at build time) */
-typedef int (*nvmlDeviceGetMemoryInfo_fn)(void *device, void *memory);
-typedef int (*nvmlDeviceGetUtilizationRates_fn)(void *device, void *utilization);
+#define NVML_SUCCESS 0
 
-static nvmlDeviceGetMemoryInfo_fn        real_nvmlDeviceGetMemoryInfo        = NULL;
-static nvmlDeviceGetUtilizationRates_fn  real_nvmlDeviceGetUtilizationRates  = NULL;
-
-/* NVML memory info struct layout (matches nvmlMemory_t):
- *   uint64_t total;
- *   uint64_t free;
- *   uint64_t used;
- */
 typedef struct {
     uint64_t total;
     uint64_t free;
     uint64_t used;
-} phoenix_nvml_memory_t;
+} nvml_memory_t;
 
-/* NVML utilization struct layout (matches nvmlUtilization_t):
- *   unsigned int gpu;
- *   unsigned int memory;
- */
 typedef struct {
-    unsigned int gpu;
-    unsigned int memory;
-} phoenix_nvml_utilization_t;
+    unsigned int gpu;    /* percent 0-100 */
+    unsigned int memory; /* percent 0-100 */
+} nvml_utilization_t;
 
-/* ── Reference to shared state (defined in hook.c) ──────────────
- * We access it via the public API functions declared in libvgpu.h.
- * The vram_limit is read from the shared state indirectly through
- * phoenix_check_vram_alloc. For the memory query proxy we use
- * the environment-based limit that was parsed at init time.
- */
-extern size_t g_vram_limit_bytes __attribute__((weak));
+/* ── Original function pointers ──────────────────────────────────*/
+static void *(*g_real_dlsym)(void *, const char *) = NULL;
 
-/* ════════════════════════════════════════════════════════════════
- * Proxy: nvmlDeviceGetMemoryInfo — report virtual slice
- * ════════════════════════════════════════════════════════════════*/
-static int proxy_nvmlDeviceGetMemoryInfo(void *device, void *memory_out) {
-    int ret = real_nvmlDeviceGetMemoryInfo
-        ? real_nvmlDeviceGetMemoryInfo(device, memory_out)
-        : 0;
+typedef nvmlReturn_t (*nvmlDeviceGetMemoryInfo_fn)(nvmlDevice_t, nvml_memory_t *);
+typedef nvmlReturn_t (*nvmlDeviceGetUtilizationRates_fn)(nvmlDevice_t, nvml_utilization_t *);
+typedef nvmlReturn_t (*nvmlInit_v2_fn)(void);
+typedef nvmlReturn_t (*nvmlShutdown_fn)(void);
 
-    if (ret == 0 && memory_out) {
-        phoenix_nvml_memory_t *mem = (phoenix_nvml_memory_t *)memory_out;
-        /* If a VRAM limit is configured, present the virtual slice */
-        size_t limit = (&g_vram_limit_bytes != NULL) ? g_vram_limit_bytes : 0;
-        if (limit > 0 && limit < mem->total) {
-            mem->total = (uint64_t)limit;
-            if (mem->used > mem->total)
-                mem->used = mem->total;
-            mem->free = mem->total - mem->used;
+static nvmlDeviceGetMemoryInfo_fn         real_nvmlDeviceGetMemoryInfo         = NULL;
+static nvmlDeviceGetUtilizationRates_fn   real_nvmlDeviceGetUtilizationRates   = NULL;
+static nvmlInit_v2_fn                     real_nvmlInit_v2                     = NULL;
+static nvmlShutdown_fn                    real_nvmlShutdown                    = NULL;
+
+/* ── Lazy resolver ───────────────────────────────────────────────*/
+static void *resolve(const char *sym) {
+    if (!g_real_dlsym) return NULL;
+    return g_real_dlsym(RTLD_NEXT, sym);
+}
+
+/* ── Hook implementations ────────────────────────────────────────*/
+
+static nvmlReturn_t hook_nvmlDeviceGetMemoryInfo(nvmlDevice_t device, nvml_memory_t *memory) {
+    if (!real_nvmlDeviceGetMemoryInfo) {
+        real_nvmlDeviceGetMemoryInfo =
+            (nvmlDeviceGetMemoryInfo_fn)resolve("nvmlDeviceGetMemoryInfo");
+        if (!real_nvmlDeviceGetMemoryInfo) {
+            memory->total = 0;
+            memory->free  = 0;
+            memory->used  = 0;
+            return NVML_SUCCESS;
         }
     }
-    return ret;
+
+    nvmlReturn_t ret = real_nvmlDeviceGetMemoryInfo(device, memory);
+    if (ret != NVML_SUCCESS)
+        return ret;
+
+    /* Virtualise: report quota limit as total memory */
+    extern size_t g_vram_limit_bytes;
+    if (g_vram_limit_bytes > 0) {
+        uint64_t limit = (uint64_t)g_vram_limit_bytes;
+        if (memory->used > limit) {
+            memory->used = limit;
+        }
+        memory->total = limit;
+        memory->free  = limit - memory->used;
+    }
+
+    return NVML_SUCCESS;
 }
 
-/* ════════════════════════════════════════════════════════════════
- * Proxy: nvmlDeviceGetUtilizationRates — report per-container view
- * ════════════════════════════════════════════════════════════════*/
-static int proxy_nvmlDeviceGetUtilizationRates(void *device, void *util_out) {
-    /* Pass through — actual per-container SM isolation is handled
-     * by the throttle mechanism in hook.c, not by faking NVML numbers.
-     * We hook this mainly so we can intercept and log if needed. */
-    if (!real_nvmlDeviceGetUtilizationRates) return 0;
-    return real_nvmlDeviceGetUtilizationRates(device, util_out);
+static nvmlReturn_t hook_nvmlDeviceGetUtilizationRates(
+    nvmlDevice_t device, nvml_utilization_t *utilization
+) {
+    if (!real_nvmlDeviceGetUtilizationRates) {
+        real_nvmlDeviceGetUtilizationRates =
+            (nvmlDeviceGetUtilizationRates_fn)resolve("nvmlDeviceGetUtilizationRates");
+        if (!real_nvmlDeviceGetUtilizationRates) {
+            utilization->gpu    = 0;
+            utilization->memory = 0;
+            return NVML_SUCCESS;
+        }
+    }
+
+    nvmlReturn_t ret = real_nvmlDeviceGetUtilizationRates(device, utilization);
+    if (ret != NVML_SUCCESS)
+        return ret;
+
+    /* Write SM utilization to shared memory for throttle decisions */
+    extern phoenix_shared_state_t *g_shared;
+    if (g_shared) {
+        g_shared->sm_utilization_pct = (float)utilization->gpu;
+    }
+
+    return NVML_SUCCESS;
 }
 
-/* ════════════════════════════════════════════════════════════════
- * Init: resolve real NVML symbols
- * ════════════════════════════════════════════════════════════════*/
+static nvmlReturn_t hook_nvmlInit_v2(void) {
+    if (!real_nvmlInit_v2) {
+        real_nvmlInit_v2 = (nvmlInit_v2_fn)resolve("nvmlInit_v2");
+        if (!real_nvmlInit_v2)
+            return NVML_SUCCESS; /* graceful: pretend success if NVML absent */
+    }
+    return real_nvmlInit_v2();
+}
+
+static nvmlReturn_t hook_nvmlShutdown(void) {
+    if (!real_nvmlShutdown) {
+        real_nvmlShutdown = (nvmlShutdown_fn)resolve("nvmlShutdown");
+        if (!real_nvmlShutdown)
+            return NVML_SUCCESS;
+    }
+    return real_nvmlShutdown();
+}
+
+/* ═══════════════════════════════════════════════════════════════
+ * Public API
+ * ═══════════════════════════════════════════════════════════════*/
+
 void nvml_hook_init(void *(*real_dlsym_fn)(void *, const char *)) {
     g_real_dlsym = real_dlsym_fn;
-    if (!g_real_dlsym) return;
-
-#ifndef PHOENIX_STUB_MODE
-    g_nvml_lib = dlopen("libnvidia-ml.so.1", RTLD_LAZY | RTLD_NOLOAD);
-    if (!g_nvml_lib)
-        g_nvml_lib = dlopen("libnvidia-ml.so", RTLD_LAZY | RTLD_NOLOAD);
-
-    if (g_nvml_lib) {
-        real_nvmlDeviceGetMemoryInfo =
-            (nvmlDeviceGetMemoryInfo_fn)g_real_dlsym(g_nvml_lib, "nvmlDeviceGetMemoryInfo");
-        real_nvmlDeviceGetUtilizationRates =
-            (nvmlDeviceGetUtilizationRates_fn)g_real_dlsym(g_nvml_lib, "nvmlDeviceGetUtilizationRates");
-        fprintf(stderr, "[PhoenixGPU] NVML hooks installed (memInfo=%p utilRates=%p)\n",
-                (void *)real_nvmlDeviceGetMemoryInfo,
-                (void *)real_nvmlDeviceGetUtilizationRates);
-    } else {
-        fprintf(stderr, "[PhoenixGPU] libnvidia-ml.so not loaded — NVML hooks inactive\n");
-    }
-#else
-    fprintf(stderr, "[PhoenixGPU] stub mode — NVML hooks compiled out\n");
-#endif
 }
 
-/* ════════════════════════════════════════════════════════════════
- * Lookup: return proxy if symbol matches a hooked NVML function
- * ════════════════════════════════════════════════════════════════*/
 void *nvml_hook_lookup(const char *symbol) {
     if (!symbol) return NULL;
 
     if (strcmp(symbol, "nvmlDeviceGetMemoryInfo") == 0)
-        return (void *)proxy_nvmlDeviceGetMemoryInfo;
+        return (void *)hook_nvmlDeviceGetMemoryInfo;
     if (strcmp(symbol, "nvmlDeviceGetUtilizationRates") == 0)
-        return (void *)proxy_nvmlDeviceGetUtilizationRates;
+        return (void *)hook_nvmlDeviceGetUtilizationRates;
+    if (strcmp(symbol, "nvmlInit_v2") == 0)
+        return (void *)hook_nvmlInit_v2;
+    if (strcmp(symbol, "nvmlInit") == 0)
+        return (void *)hook_nvmlInit_v2;  /* legacy alias */
+    if (strcmp(symbol, "nvmlShutdown") == 0)
+        return (void *)hook_nvmlShutdown;
 
     return NULL;
 }

@@ -1,140 +1,187 @@
 /*
- * cuda_hook.c — CUDA Driver API interception
+ * cuda_hook.c — CUDA Driver API Interception
+ *
+ * Intercepts cuMemAlloc_v2, cuMemFree_v2, cuLaunchKernel and related
+ * CUDA Driver API calls. Enforces VRAM quotas and records metrics.
  *
  * Derived from HAMi (https://github.com/Project-HAMi/HAMi)
  * Original Copyright: HAMi Authors, Apache License 2.0
  * Modifications Copyright 2025: PhoenixGPU Authors, Apache License 2.0
  *
- * Intercepts cuMemAlloc / cuMemFree / cuLaunchKernel to enforce
- * VRAM quotas and collect TFlops metering data.
- *
- * When compiled without CUDA (PHOENIX_STUB_MODE), all functions are
- * safe no-ops so the library can be built and tested on non-GPU hosts.
+ * Modifications vs HAMi upstream:
+ *   - VRAM quota enforcement via phoenix_check_vram_alloc()
+ *   - TFlops metering via phoenix_meter_record_kernel()
+ *   - SM throttling via phoenix_throttle_sm_if_needed()
  */
 
-#define _GNU_SOURCE
-#include <dlfcn.h>
 #include <stdio.h>
 #include <string.h>
+#include <dlfcn.h>
 #include <stdint.h>
 
 #include "libvgpu.h"
 #include "cuda_hook.h"
 #include "phoenix_meter.h"
 
-/* ── Real function pointers resolved at init ─────────────────── */
+/* ── CUDA Driver API type definitions ────────────────────────────
+ * These mirror the CUDA Driver API types without requiring the
+ * CUDA toolkit headers at build time.
+ */
+typedef int            CUresult;
+typedef uintptr_t      CUdeviceptr;
+typedef void          *CUfunction;
+typedef void          *CUstream;
+
+#define CUDA_SUCCESS            0
+#define CUDA_ERROR_OUT_OF_MEMORY 2
+
+/* ── Original function pointers (resolved lazily via real_dlsym) ─ */
 static void *(*g_real_dlsym)(void *, const char *) = NULL;
-#ifndef PHOENIX_STUB_MODE
-static void  *g_cuda_lib = NULL;
-#endif
 
-/* Typedef for key CUDA Driver API functions we intercept */
-typedef int (*cuMemAlloc_fn)(void **dptr, size_t bytesize);
-typedef int (*cuMemFree_fn)(void *dptr);
-typedef int (*cuLaunchKernel_fn)(void *f,
-    unsigned int gridDimX, unsigned int gridDimY, unsigned int gridDimZ,
-    unsigned int blockDimX, unsigned int blockDimY, unsigned int blockDimZ,
-    unsigned int sharedMemBytes, void *hStream,
-    void **kernelParams, void **extra);
+typedef CUresult (*cuMemAlloc_v2_fn)(CUdeviceptr *, size_t);
+typedef CUresult (*cuMemFree_v2_fn)(CUdeviceptr);
+typedef CUresult (*cuLaunchKernel_fn)(CUfunction, unsigned int, unsigned int,
+    unsigned int, unsigned int, unsigned int, unsigned int,
+    unsigned int, CUstream, void **, void **);
+typedef CUresult (*cuMemGetInfo_v2_fn)(size_t *, size_t *);
 
-static cuMemAlloc_fn      real_cuMemAlloc      = NULL;
-static cuMemFree_fn       real_cuMemFree       = NULL;
-static cuLaunchKernel_fn  real_cuLaunchKernel  = NULL;
+static cuMemAlloc_v2_fn    real_cuMemAlloc_v2    = NULL;
+static cuMemFree_v2_fn     real_cuMemFree_v2     = NULL;
+static cuLaunchKernel_fn   real_cuLaunchKernel   = NULL;
+static cuMemGetInfo_v2_fn  real_cuMemGetInfo_v2  = NULL;
 
-/* ── Default FLOPs heuristic per kernel launch ───────────────── */
-#define DEFAULT_KERNEL_FLOPS_ESTIMATE  1000000ULL  /* 1 MFLOP placeholder */
+/* ── Lazy resolver ───────────────────────────────────────────────*/
+static void *resolve(const char *sym) {
+    if (!g_real_dlsym) return NULL;
+    return g_real_dlsym(RTLD_NEXT, sym);
+}
 
-/* ════════════════════════════════════════════════════════════════
- * Proxy: cuMemAlloc — enforce VRAM quota before allocation
- * ════════════════════════════════════════════════════════════════*/
-static int proxy_cuMemAlloc(void **dptr, size_t bytesize) {
-    if (phoenix_check_vram_alloc(bytesize) != 0) {
-        /* CUDA_ERROR_OUT_OF_MEMORY = 2 */
-        return 2;
+/* ── Hook implementations ────────────────────────────────────────*/
+
+static CUresult hook_cuMemAlloc_v2(CUdeviceptr *dptr, size_t bytesize) {
+    if (!real_cuMemAlloc_v2) {
+        real_cuMemAlloc_v2 = (cuMemAlloc_v2_fn)resolve("cuMemAlloc_v2");
+        if (!real_cuMemAlloc_v2)
+            return CUDA_ERROR_OUT_OF_MEMORY;
     }
-    int ret = real_cuMemAlloc ? real_cuMemAlloc(dptr, bytesize) : 2;
-    if (ret == 0) {
+
+    /* Check VRAM quota before allowing allocation */
+    if (phoenix_check_vram_alloc(bytesize) != 0) {
+        return CUDA_ERROR_OUT_OF_MEMORY;
+    }
+
+    CUresult ret = real_cuMemAlloc_v2(dptr, bytesize);
+    if (ret == CUDA_SUCCESS) {
         phoenix_record_alloc(bytesize);
     }
     return ret;
 }
 
-/* ════════════════════════════════════════════════════════════════
- * Proxy: cuMemFree — track deallocation
- * ════════════════════════════════════════════════════════════════*/
-static int proxy_cuMemFree(void *dptr) {
-    /* Note: real free tracks by pointer; we use a simplified byte
-     * accounting model consistent with the shared state design. */
-    int ret = real_cuMemFree ? real_cuMemFree(dptr) : 0;
-    /* In a production implementation, we would look up the allocation
-     * size from an internal map. For now the free accounting is handled
-     * by explicit phoenix_record_free calls from higher layers. */
+static CUresult hook_cuMemFree_v2(CUdeviceptr dptr) {
+    if (!real_cuMemFree_v2) {
+        real_cuMemFree_v2 = (cuMemFree_v2_fn)resolve("cuMemFree_v2");
+        if (!real_cuMemFree_v2)
+            return CUDA_SUCCESS;
+    }
+
+    /*
+     * We don't know the exact size here — CUDA doesn't expose it
+     * in cuMemFree. The shared state accounting will be corrected
+     * when the NVML sampler thread refreshes memory usage.
+     * For a rough estimate, we record 0 bytes freed and rely on
+     * the NVML sampler for ground truth.
+     */
+    CUresult ret = real_cuMemFree_v2(dptr);
     return ret;
 }
 
-/* ════════════════════════════════════════════════════════════════
- * Proxy: cuLaunchKernel — SM throttle + TFlops metering
- * ════════════════════════════════════════════════════════════════*/
-static int proxy_cuLaunchKernel(void *f,
-        unsigned int gridDimX, unsigned int gridDimY, unsigned int gridDimZ,
-        unsigned int blockDimX, unsigned int blockDimY, unsigned int blockDimZ,
-        unsigned int sharedMemBytes, void *hStream,
-        void **kernelParams, void **extra) {
+static CUresult hook_cuLaunchKernel(
+    CUfunction f,
+    unsigned int gridDimX,  unsigned int gridDimY,  unsigned int gridDimZ,
+    unsigned int blockDimX, unsigned int blockDimY, unsigned int blockDimZ,
+    unsigned int sharedMemBytes,
+    CUstream hStream,
+    void **kernelParams,
+    void **extra
+) {
+    if (!real_cuLaunchKernel) {
+        real_cuLaunchKernel = (cuLaunchKernel_fn)resolve("cuLaunchKernel");
+        if (!real_cuLaunchKernel)
+            return CUDA_SUCCESS;
+    }
 
-    /* Throttle if SM utilization exceeds the configured limit */
+    /* SM throttle check — may introduce brief sleep if over limit */
     phoenix_throttle_sm_if_needed();
 
-    /* Estimate FLOPs for billing (grid * block = total threads) */
-    uint64_t threads = (uint64_t)gridDimX * gridDimY * gridDimZ *
-                       (uint64_t)blockDimX * blockDimY * blockDimZ;
-    uint64_t flops = threads > 0 ? threads : DEFAULT_KERNEL_FLOPS_ESTIMATE;
-    phoenix_meter_record_kernel(flops);
-
-    if (!real_cuLaunchKernel) return 0;
-    return real_cuLaunchKernel(f,
+    CUresult ret = real_cuLaunchKernel(f,
         gridDimX, gridDimY, gridDimZ,
         blockDimX, blockDimY, blockDimZ,
         sharedMemBytes, hStream, kernelParams, extra);
+
+    if (ret == CUDA_SUCCESS) {
+        /*
+         * Estimate FLOPs: gridDim * blockDim * 2 (fma ops per thread, conservative).
+         * This is a rough estimate; real metering reads hardware counters.
+         */
+        uint64_t threads = (uint64_t)gridDimX * gridDimY * gridDimZ *
+                           (uint64_t)blockDimX * blockDimY * blockDimZ;
+        uint64_t flops_estimate = threads * 2;
+        phoenix_meter_record_kernel(flops_estimate);
+    }
+
+    return ret;
 }
 
-/* ════════════════════════════════════════════════════════════════
- * Init: resolve real CUDA symbols
- * ════════════════════════════════════════════════════════════════*/
+static CUresult hook_cuMemGetInfo_v2(size_t *free, size_t *total) {
+    if (!real_cuMemGetInfo_v2) {
+        real_cuMemGetInfo_v2 = (cuMemGetInfo_v2_fn)resolve("cuMemGetInfo_v2");
+        if (!real_cuMemGetInfo_v2) {
+            *free  = 0;
+            *total = 0;
+            return CUDA_SUCCESS;
+        }
+    }
+
+    CUresult ret = real_cuMemGetInfo_v2(free, total);
+    if (ret != CUDA_SUCCESS)
+        return ret;
+
+    /* Virtualise: report the quota limit as total, not physical total */
+    extern size_t g_vram_limit_bytes;
+    if (g_vram_limit_bytes > 0) {
+        *total = g_vram_limit_bytes;
+        if (*free > g_vram_limit_bytes)
+            *free = g_vram_limit_bytes;
+    }
+
+    return CUDA_SUCCESS;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+ * Public API
+ * ═══════════════════════════════════════════════════════════════*/
+
 void cuda_hook_init(void *(*real_dlsym_fn)(void *, const char *)) {
     g_real_dlsym = real_dlsym_fn;
-    if (!g_real_dlsym) return;
-
-#ifndef PHOENIX_STUB_MODE
-    g_cuda_lib = dlopen("libcuda.so.1", RTLD_LAZY | RTLD_NOLOAD);
-    if (!g_cuda_lib)
-        g_cuda_lib = dlopen("libcuda.so", RTLD_LAZY | RTLD_NOLOAD);
-
-    if (g_cuda_lib) {
-        real_cuMemAlloc     = (cuMemAlloc_fn)g_real_dlsym(g_cuda_lib, "cuMemAlloc_v2");
-        real_cuMemFree      = (cuMemFree_fn)g_real_dlsym(g_cuda_lib, "cuMemFree_v2");
-        real_cuLaunchKernel = (cuLaunchKernel_fn)g_real_dlsym(g_cuda_lib, "cuLaunchKernel");
-        fprintf(stderr, "[PhoenixGPU] CUDA hooks installed (cuMemAlloc=%p cuLaunchKernel=%p)\n",
-                (void *)real_cuMemAlloc, (void *)real_cuLaunchKernel);
-    } else {
-        fprintf(stderr, "[PhoenixGPU] libcuda.so not loaded — CUDA hooks inactive\n");
-    }
-#else
-    fprintf(stderr, "[PhoenixGPU] stub mode — CUDA hooks compiled out\n");
-#endif
 }
 
-/* ════════════════════════════════════════════════════════════════
- * Lookup: return proxy if symbol matches a hooked CUDA function
- * ════════════════════════════════════════════════════════════════*/
 void *cuda_hook_lookup(const char *symbol) {
     if (!symbol) return NULL;
 
-    if (strcmp(symbol, "cuMemAlloc_v2") == 0 || strcmp(symbol, "cuMemAlloc") == 0)
-        return (void *)proxy_cuMemAlloc;
-    if (strcmp(symbol, "cuMemFree_v2") == 0 || strcmp(symbol, "cuMemFree") == 0)
-        return (void *)proxy_cuMemFree;
+    if (strcmp(symbol, "cuMemAlloc_v2") == 0)
+        return (void *)hook_cuMemAlloc_v2;
+    if (strcmp(symbol, "cuMemAlloc") == 0)
+        return (void *)hook_cuMemAlloc_v2;  /* legacy alias */
+    if (strcmp(symbol, "cuMemFree_v2") == 0)
+        return (void *)hook_cuMemFree_v2;
+    if (strcmp(symbol, "cuMemFree") == 0)
+        return (void *)hook_cuMemFree_v2;   /* legacy alias */
     if (strcmp(symbol, "cuLaunchKernel") == 0)
-        return (void *)proxy_cuLaunchKernel;
+        return (void *)hook_cuLaunchKernel;
+    if (strcmp(symbol, "cuMemGetInfo_v2") == 0)
+        return (void *)hook_cuMemGetInfo_v2;
+    if (strcmp(symbol, "cuMemGetInfo") == 0)
+        return (void *)hook_cuMemGetInfo_v2; /* legacy alias */
 
     return NULL;
 }

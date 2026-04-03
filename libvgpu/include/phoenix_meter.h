@@ -1,5 +1,8 @@
 /*
- * phoenix_meter.h — TFlops metering declarations
+ * phoenix_meter.h — TFlops Metering Declarations
+ *
+ * Records kernel launch timing and estimates TFlops for
+ * PhoenixGPU's per-job billing system.
  *
  * Copyright 2025 PhoenixGPU Authors
  * SPDX-License-Identifier: Apache-2.0
@@ -13,21 +16,25 @@ extern "C" {
 #endif
 
 /*
- * Initialize the TFlops metering subsystem.
- * job_uid:    PhoenixJob UID for billing attribution.
- * namespace_: Kubernetes namespace for quota accounting.
+ * phoenix_meter_init — Initialize the TFlops metering subsystem.
+ *
+ * @param job_uid     PhoenixJob UID (from PHOENIX_JOB_UID env var).
+ * @param namespace_  Pod namespace (from PHOENIX_POD_NAMESPACE env var).
  */
 void phoenix_meter_init(const char *job_uid, const char *namespace_);
 
 /*
- * Record a single kernel launch with an estimated FLOPs count.
- * Called from the cuLaunchKernel hook.
+ * phoenix_meter_record_kernel — Record a single kernel launch.
+ * Called from cuda_hook after each cuLaunchKernel.
+ *
+ * @param flops_estimate  Estimated FLOPs for this kernel launch.
+ *                        If 0, a default estimate is used.
  */
 void phoenix_meter_record_kernel(uint64_t flops_estimate);
 
 /*
- * Flush accumulated metrics to shared memory.
- * Called periodically and on library unload.
+ * phoenix_meter_flush — Flush accumulated metrics to shared memory.
+ * Called periodically and from the destructor.
  */
 void phoenix_meter_flush(void);
 

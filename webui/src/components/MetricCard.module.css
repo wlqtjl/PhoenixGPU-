@@ -1,53 +1,63 @@
-/* MetricCard.module.css — KPI card styling
- * Uses design tokens from design-system.css
- */
+/* MetricCard — KPI card component */
 
 .card {
-  background: var(--bg-elevated);
+  background: var(--bg-surface);
   border: 1px solid var(--border-dim);
   border-radius: var(--r-lg);
-  padding: var(--sp-5) var(--sp-6);
-  transition: border-color var(--t-mid) var(--ease-out),
-              box-shadow var(--t-mid) var(--ease-out);
+  padding: var(--sp-5) var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  position: relative;
+  overflow: hidden;
+  transition: border-color var(--t-fast) var(--ease-out),
+              box-shadow    var(--t-fast) var(--ease-out);
 }
 
-.card:hover {
-  border-color: var(--border-mid);
-  box-shadow: var(--shadow-sm);
+/* Accent left border */
+.card::before {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 3px;
+  border-radius: var(--r-sm) 0 0 var(--r-sm);
 }
+
+.amber::before  { background: var(--amber-bright); }
+.green::before  { background: var(--green); }
+.red::before    { background: var(--red); }
+.blue::before   { background: var(--blue); }
+.purple::before { background: var(--purple); }
+
+.amber  { border-color: var(--border-amber); }
+.amber:hover  { box-shadow: var(--shadow-amber); }
 
 .label {
-  font-size: 0.8rem;
+  font-size: 11px;
   font-weight: 500;
-  color: var(--text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-bottom: var(--sp-1);
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
 }
 
 .value {
   font-family: var(--font-mono);
-  font-size: 1.75rem;
+  font-size: 28px;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.1;
   color: var(--text-primary);
 }
 
-.sub {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  margin-top: var(--sp-1);
-}
-
-/* ── Accent variants ─────────────────────────────────────────── */
-.amber  { border-left: 3px solid var(--amber-mid); }
-.green  { border-left: 3px solid var(--green); }
-.red    { border-left: 3px solid var(--red); }
-.blue   { border-left: 3px solid var(--blue); }
-.purple { border-left: 3px solid var(--purple); }
-
+/* Accent-colored values */
 .val-amber  { color: var(--amber-bright); }
 .val-green  { color: var(--green); }
-.val-red    { color: var(--text-red); }
+.val-red    { color: var(--red); }
 .val-blue   { color: var(--blue); }
 .val-purple { color: var(--purple); }
+
+.sub {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: var(--sp-1);
+}

@@ -1,0 +1,149 @@
+/* Alerts page */
+
+.page {
+  padding: var(--sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  max-width: 900px;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ── Summary strip ───────────────────────────────────────────── */
+.summaryStrip {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.summaryChip {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--r-md);
+  padding: var(--sp-2) var(--sp-4);
+  cursor: pointer;
+  transition: border-color var(--t-fast), background var(--t-fast);
+  text-align: left;
+}
+
+.summaryChip:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-mid);
+}
+
+.chipDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.chipLabel {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.chipCount {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.summaryDiv {
+  flex: 1;
+}
+
+/* ── Filter bar ──────────────────────────────────────────────── */
+.filterBar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.filterGroup {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--r-md);
+  padding: 3px;
+}
+
+.filterBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+  white-space: nowrap;
+}
+
+.filterBtn:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.filterActive {
+  background: var(--bg-overlay);
+  color: var(--amber-bright);
+}
+
+/* Severity-specific active colours */
+.sev-error.filterActive { color: var(--red); }
+.sev-warn.filterActive  { color: var(--amber-bright); }
+.sev-info.filterActive  { color: var(--blue); }
+
+.filterCount {
+  background: var(--bg-base);
+  border-radius: 99px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  padding: 0 5px;
+  min-width: 16px;
+  text-align: center;
+}
+
+.filterSep {
+  width: 1px;
+  height: 20px;
+  background: var(--border-dim);
+  flex-shrink: 0;
+}
+
+.resultCount {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ── Alert panel ─────────────────────────────────────────────── */
+.panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}

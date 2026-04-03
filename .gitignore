@@ -1,22 +1,26 @@
 # Build artifacts
 bin/
-api-server
-phoenix-controller
+libvgpu/build/
+billing-engine
+device-plugin
+scheduler-extender
+webhook
+
+# Test artifacts
 coverage.out
 coverage-*.out
-
-# libvgpu build directory
-libvgpu/build/
-
-# WebUI
-webui/node_modules/
-webui/dist/
-
-# OS
-.DS_Store
 
 # IDE
 .idea/
 .vscode/
 *.swp
-*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+webui/node_modules/
+webui/dist/
+phoenix-controller
+bin/

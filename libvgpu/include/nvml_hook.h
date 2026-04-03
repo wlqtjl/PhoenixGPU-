@@ -1,5 +1,8 @@
 /*
- * nvml_hook.h — NVIDIA Management Library hook declarations
+ * nvml_hook.h — NVML Hook Declarations
+ *
+ * Intercepts NVML calls so that vGPU containers see virtualised
+ * device properties (memory, utilization) matching their quota.
  *
  * Copyright 2025 PhoenixGPU Authors
  * SPDX-License-Identifier: Apache-2.0
@@ -11,17 +14,19 @@ extern "C" {
 #endif
 
 /*
- * Initialize the NVML hook table.
- * Must be called once from the library constructor (phoenix_init).
- * real_dlsym_fn: pointer to the original dlsym, used to resolve
- *                real NVML symbols at runtime.
+ * nvml_hook_init — Initialize the NVML hook table.
+ * Must be called once from the library constructor.
+ *
+ * @param real_dlsym_fn  Pointer to the real dlsym.
  */
 void nvml_hook_init(void *(*real_dlsym_fn)(void *, const char *));
 
 /*
- * Look up a hooked NVML symbol.
- * Returns our proxy function pointer if the symbol is hooked,
- * or NULL if it should be passed through to the real implementation.
+ * nvml_hook_lookup — Look up an NVML symbol.
+ * Returns our proxy function if the symbol is hooked, NULL otherwise.
+ *
+ * @param symbol  The symbol name being looked up (e.g. "nvmlDeviceGetMemoryInfo").
+ * @return  Pointer to the proxy function, or NULL if not intercepted.
  */
 void *nvml_hook_lookup(const char *symbol);
 

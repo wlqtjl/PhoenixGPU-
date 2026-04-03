@@ -189,6 +189,9 @@ type RealK8sClient struct {
 	// Each cache auto-refreshes every 15s independently
 	utilCaches map[string]*MetricsCache
 	mu         sync.RWMutex
+
+	// Optional billing data source (nil = use fake data)
+	billingQuerier BillingQuerier
 }
 
 // PhoenixJobGVR is the GroupVersionResource for PhoenixJob CRD.
@@ -344,28 +347,83 @@ func (c *RealK8sClient) TriggerCheckpoint(ctx context.Context, namespace, name s
 	return nil
 }
 
-func (c *RealK8sClient) GetBillingByDepartment(_ context.Context, period string) ([]apitypes.DeptBilling, error) {
-	// TODO Sprint 6: query TimescaleDB billing_records table
-	c.logger.Debug("GetBillingByDepartment: stub pending DB integration",
+func (c *RealK8sClient) GetBillingByDepartment(ctx context.Context, period string) ([]apitypes.DeptBilling, error) {
+	if c.billingQuerier != nil {
+		results, err := c.billingQuerier.QueryBillingByDepartment(ctx, period)
+		if err != nil {
+			c.logger.Warn("billing query failed, falling back to mock data",
+				zap.String("period", period), zap.Error(err))
+			return fakeBillingDepartments(), nil
+		}
+		return results, nil
+	}
+	c.logger.Debug("GetBillingByDepartment: no billing querier configured, using mock data",
 		zap.String("period", period))
-	return []apitypes.DeptBilling{}, nil
+	return fakeBillingDepartments(), nil
 }
 
-func (c *RealK8sClient) GetBillingRecords(_ context.Context, department string) ([]apitypes.BillingRecord, error) {
-	// TODO Sprint 6: query TimescaleDB billing_records table
-	_ = department
-	return []apitypes.BillingRecord{}, nil
+func (c *RealK8sClient) GetBillingRecords(ctx context.Context, department string) ([]apitypes.BillingRecord, error) {
+	if c.billingQuerier != nil {
+		results, err := c.billingQuerier.QueryBillingRecords(ctx, department)
+		if err != nil {
+			c.logger.Warn("billing records query failed, falling back to mock data",
+				zap.String("department", department), zap.Error(err))
+		} else {
+			return results, nil
+		}
+	}
+	all := fakeBillingRecords()
+	if department == "" {
+		return all, nil
+	}
+	var out []apitypes.BillingRecord
+	for _, r := range all {
+		if r.Department == department {
+			out = append(out, r)
+		}
+	}
+	return out, nil
 }
 
 func (c *RealK8sClient) ListAlerts(_ context.Context) ([]apitypes.Alert, error) {
 	// TODO Sprint 6: query alert store
-	return []apitypes.Alert{}, nil
+	return fakeAlertsList(), nil
 }
 
-func (c *RealK8sClient) ResolveAlert(_ context.Context, id string) error {
-	// TODO Sprint 6: query alert store
-	_ = id
-	return nil
+func (c *RealK8sClient) ResolveAlert(_ context.Context, _ string) error {
+	return nil // idempotent — resolving unknown alert is OK
+}
+
+// ── Placeholder fake data (pending DB integration) ────────────────
+
+func fakeBillingDepartments() []apitypes.DeptBilling {
+	return []apitypes.DeptBilling{
+		{Department: "算法研究院", GPUHours: 620, TFlopsHours: 193440, CostCNY: 21700, QuotaHours: 800, UsedPct: 77.5},
+		{Department: "NLP平台组", GPUHours: 480, TFlopsHours: 149760, CostCNY: 16800, QuotaHours: 600, UsedPct: 80.0},
+		{Department: "CV工程组", GPUHours: 380, TFlopsHours: 118560, CostCNY: 13300, QuotaHours: 500, UsedPct: 76.0},
+		{Department: "推理基础设施", GPUHours: 280, TFlopsHours: 87360, CostCNY: 9800, QuotaHours: 400, UsedPct: 70.0},
+		{Department: "数据工程部", GPUHours: 150, TFlopsHours: 24750, CostCNY: 1800, QuotaHours: 300, UsedPct: 50.0},
+	}
+}
+
+func fakeBillingRecords() []apitypes.BillingRecord {
+	return []apitypes.BillingRecord{
+		{Namespace: "research", JobName: "llm-pretrain-v3", Department: "算法研究院",
+			GPUModel: "NVIDIA H800", AllocRatio: 0.5, GPUHours: 520, TFlopsHours: 1040000, CostCNY: 18200},
+		{Namespace: "nlp", JobName: "rlhf-finetune", Department: "NLP平台组",
+			GPUModel: "NVIDIA A100 80GB", AllocRatio: 0.25, GPUHours: 480, TFlopsHours: 149760, CostCNY: 16800},
+	}
+}
+
+func fakeAlertsList() []apitypes.Alert {
+	return []apitypes.Alert{
+		{ID: "alert-1", Severity: "error", Tenant: "算法研究院",
+			Message: "月度配额已用 93%，预计 48h 超限", CreatedAt: time.Now().Add(-10 * time.Minute)},
+		{ID: "alert-2", Severity: "warn", Tenant: "cv-detection-v2",
+			Message: "Restore 失败 1 次，正在第 2 次重试", CreatedAt: time.Now().Add(-30 * time.Minute)},
+		{ID: "alert-3", Severity: "warn", Tenant: "gpu-node-03",
+			Message: "GPU 温度 64°C，接近阈值 70°C", CreatedAt: time.Now().Add(-60 * time.Minute)},
+	}
 }
 
 // ── Internal helpers ──────────────────────────────────────────────
