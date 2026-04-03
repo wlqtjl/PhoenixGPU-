@@ -1,0 +1,22 @@
+.page { display: flex; flex-direction: column; gap: 24px; }
+.periodRow { display: flex; gap: 8px; }
+.periodBtn { background: white; border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 6px 16px; font-size: 14px; cursor: pointer; }
+.periodBtn:hover { background: var(--hover, #f9fafb); }
+.periodActive { background: var(--primary, #6366f1) !important; color: white; border-color: transparent; }
+.metricGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+.panel { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.panelTitle { font-weight: 600; margin-bottom: 16px; }
+.panelSub { font-weight: 400; color: var(--text3, #9ca3af); font-size: 13px; margin-left: 8px; }
+.headerRow { display: grid; grid-template-columns: 1.5fr 2fr 1fr 1fr; padding: 8px 0; font-size: 12px; color: var(--text3, #9ca3af); text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border, #e5e7eb); }
+.deptRow { display: grid; grid-template-columns: 1.5fr 2fr 1fr 1fr; padding: 12px 0; align-items: center; border-bottom: 1px solid var(--border, #f3f4f6); }
+.deptName { font-weight: 500; }
+.deptBar { display: flex; flex-direction: column; gap: 4px; }
+.barLabel { font-size: 12px; color: var(--text2, #6b7280); }
+.barBg { background: var(--border, #e5e7eb); border-radius: 4px; height: 8px; overflow: hidden; }
+.barFill { height: 100%; border-radius: 4px; transition: width .3s; }
+.deptCost { font-family: var(--mono, monospace); font-size: 14px; }
+.deptPct { display: flex; align-items: center; }
+.infoBox { background: var(--hover, #f0fdf4); border-radius: 12px; padding: 16px 20px; border: 1px solid #bbf7d0; }
+.infoTitle { font-weight: 600; margin-bottom: 8px; color: #166534; }
+.infoText { font-size: 14px; color: #15803d; line-height: 1.6; }
+.mono { font-family: var(--mono, monospace); background: rgba(0,0,0,.05); padding: 1px 4px; border-radius: 3px; }
