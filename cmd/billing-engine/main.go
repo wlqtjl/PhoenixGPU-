@@ -6,6 +6,13 @@
 // Standalone service that collects GPU usage metrics, computes TFlops·h
 // billing records, persists to TimescaleDB, and enforces quotas.
 //
+// Architecture:
+//  1. Connects to K8s API to discover active PhoenixJobs
+//  2. Collects GPU usage metrics per collection interval
+//  3. Computes billing records via billing.Engine
+//  4. Persists to TimescaleDB (or in-memory store for dev)
+//  5. Fires quota alerts when thresholds are exceeded
+//
 // Copyright 2025 PhoenixGPU Authors
 // SPDX-License-Identifier: Apache-2.0
 package main
@@ -13,6 +20,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -20,6 +28,11 @@ import (
 
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
 
 	"github.com/wlqtjl/PhoenixGPU/pkg/billing"
 )
@@ -35,6 +48,7 @@ type options struct {
 	collectionInterval int
 	metricsAddr        string
 	probeAddr          string
+	kubeconfig         string
 }
 
 func main() {
@@ -63,6 +77,132 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// PhoenixJobGVR is the GroupVersionResource for PhoenixJob CRD.
+var PhoenixJobGVR = schema.GroupVersionResource{
+	Group:    "phoenixgpu.io",
+	Version:  "v1alpha1",
+	Resource: "phoenixjobs",
+}
+
+// activeJob holds the extracted info from a running PhoenixJob CRD.
+type activeJob struct {
+	Name       string
+	Namespace  string
+	Phase      string
+	Department string
+	Project    string
+	GPUModel   string
+	AllocRatio float64
+	NodeName   string
+	PodName    string
+	StartedAt  time.Time
+}
+
+// collectActiveJobs queries K8s API for all running PhoenixJobs.
+func collectActiveJobs(ctx context.Context, dynClient dynamic.Interface, logger *zap.Logger) ([]activeJob, error) {
+	list, err := dynClient.Resource(PhoenixJobGVR).Namespace(metav1.NamespaceAll).
+		List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list PhoenixJobs: %w", err)
+	}
+
+	var jobs []activeJob
+	for _, item := range list.Items {
+		phase, _, _ := unstructured.NestedString(item.Object, "status", "phase")
+		// Only collect usage for running jobs
+		if phase != "Running" && phase != "Checkpointing" {
+			continue
+		}
+
+		dept, _, _ := unstructured.NestedString(item.Object, "spec", "billing", "department")
+		project, _, _ := unstructured.NestedString(item.Object, "spec", "billing", "project")
+		gpuModel, _, _ := unstructured.NestedString(item.Object, "spec", "template", "spec",
+			"containers", "0", "resources", "limits", "nvidia.com/gpu-model")
+		allocRatio, _, _ := unstructured.NestedFloat64(item.Object, "spec", "checkpoint", "allocRatio")
+		nodeName, _, _ := unstructured.NestedString(item.Object, "status", "currentNodeName")
+		podName, _, _ := unstructured.NestedString(item.Object, "status", "currentPodName")
+
+		// Parse creation timestamp as start time
+		startedAt := item.GetCreationTimestamp().Time
+
+		// Use a default alloc ratio if not set
+		if allocRatio <= 0 {
+			allocRatio = 1.0
+		}
+
+		// Use a default GPU model if not set
+		if gpuModel == "" {
+			gpuModel = "NVIDIA-A100-80GB"
+		}
+
+		jobs = append(jobs, activeJob{
+			Name:       item.GetName(),
+			Namespace:  item.GetNamespace(),
+			Phase:      phase,
+			Department: dept,
+			Project:    project,
+			GPUModel:   gpuModel,
+			AllocRatio: allocRatio,
+			NodeName:   nodeName,
+			PodName:    podName,
+			StartedAt:  startedAt,
+		})
+	}
+
+	logger.Debug("collected active jobs", zap.Int("count", len(jobs)))
+	return jobs, nil
+}
+
+// recordUsage creates a billing record for a single collection interval.
+func recordUsage(ctx context.Context, engine *billing.Engine, job activeJob, interval time.Duration, logger *zap.Logger) {
+	now := time.Now()
+	record := billing.UsageRecord{
+		Namespace:  job.Namespace,
+		PodName:    job.PodName,
+		JobName:    job.Name,
+		Department: job.Department,
+		Project:    job.Project,
+		GPUModel:   job.GPUModel,
+		NodeName:   job.NodeName,
+		AllocRatio: job.AllocRatio,
+		StartedAt:  now.Add(-interval),
+		EndedAt:    now,
+	}
+
+	if err := engine.Record(ctx, record); err != nil {
+		logger.Warn("failed to record usage",
+			zap.String("job", job.Name),
+			zap.String("namespace", job.Namespace),
+			zap.Error(err))
+	}
+}
+
+// startProbeServer starts a health probe HTTP server.
+func startProbeServer(addr string, logger *zap.Logger) *http.Server {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+	})
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+	})
+
+	srv := &http.Server{
+		Addr:         addr,
+		Handler:      mux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+	}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("probe server error", zap.Error(err))
+		}
+	}()
+	return srv
 }
 
 func run(opts *options) error {
@@ -103,6 +243,26 @@ func run(opts *options) error {
 			zap.Float64("usedGPUHours", status.UsedGPUHours))
 	})
 
+	// ── Initialize K8s client ─────────────────────────────────────
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		logger.Warn("failed to get in-cluster config, running without K8s integration",
+			zap.Error(err))
+	}
+
+	var dynClient dynamic.Interface
+	if cfg != nil {
+		dynClient, err = dynamic.NewForConfig(cfg)
+		if err != nil {
+			logger.Warn("failed to create dynamic K8s client",
+				zap.Error(err))
+		}
+	}
+
+	// ── Start health probe server ─────────────────────────────────
+	probeSrv := startProbeServer(opts.probeAddr, logger)
+	defer probeSrv.Close()
+
 	// ── Collection loop ───────────────────────────────────────────
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -115,16 +275,32 @@ func run(opts *options) error {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	logger.Info("billing-engine ready",
-		zap.Duration("collectionInterval", interval))
-
-	// TODO Sprint 7: integrate with K8s API to discover active PhoenixJobs
-	// and collect real usage metrics per collection interval
-	_ = engine
+		zap.Duration("collectionInterval", interval),
+		zap.Bool("k8sIntegration", dynClient != nil))
 
 	for {
 		select {
 		case <-ticker.C:
-			logger.Debug("collection tick — pending real K8s integration")
+			if dynClient == nil {
+				logger.Debug("collection tick — no K8s client, skipping")
+				continue
+			}
+
+			collectCtx, collectCancel := context.WithTimeout(ctx, 30*time.Second)
+			jobs, err := collectActiveJobs(collectCtx, dynClient, logger)
+			collectCancel()
+			if err != nil {
+				logger.Warn("failed to collect active jobs", zap.Error(err))
+				continue
+			}
+
+			logger.Info("collection tick",
+				zap.Int("activeJobs", len(jobs)))
+
+			for _, job := range jobs {
+				recordUsage(ctx, engine, job, interval, logger)
+			}
+
 		case sig := <-quit:
 			logger.Info("received signal, shutting down", zap.String("signal", sig.String()))
 			return nil
