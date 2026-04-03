@@ -5,7 +5,6 @@ go 1.24
 toolchain go1.24.13
 
 require (
-
 	// HTTP server
 	github.com/gin-gonic/gin v1.9.1
 

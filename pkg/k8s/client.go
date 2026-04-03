@@ -348,18 +348,18 @@ func (c *RealK8sClient) GetBillingByDepartment(_ context.Context, period string)
 	// TODO Sprint 6: query TimescaleDB billing_records table
 	c.logger.Debug("GetBillingByDepartment: stub pending DB integration",
 		zap.String("period", period))
-	return nil, nil
+	return []apitypes.DeptBilling{}, nil
 }
 
 func (c *RealK8sClient) GetBillingRecords(_ context.Context, department string) ([]apitypes.BillingRecord, error) {
 	// TODO Sprint 6: query TimescaleDB billing_records table
 	_ = department
-	return nil, nil
+	return []apitypes.BillingRecord{}, nil
 }
 
 func (c *RealK8sClient) ListAlerts(_ context.Context) ([]apitypes.Alert, error) {
 	// TODO Sprint 6: query alert store
-	return nil, nil
+	return []apitypes.Alert{}, nil
 }
 
 func (c *RealK8sClient) ResolveAlert(_ context.Context, id string) error {
