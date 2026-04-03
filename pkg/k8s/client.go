@@ -34,7 +34,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	apitypes "github.com/wlqtjl/PhoenixGPU/cmd/api-server/internal"
+	apitypes "github.com/wlqtjl/PhoenixGPU/pkg/types"
 )
 
 // ── Domain types for this package ─────────────────────────────────
@@ -346,23 +346,26 @@ func (c *RealK8sClient) TriggerCheckpoint(ctx context.Context, namespace, name s
 
 func (c *RealK8sClient) GetBillingByDepartment(_ context.Context, period string) ([]apitypes.DeptBilling, error) {
 	// TODO Sprint 6: query TimescaleDB billing_records table
-	// For Sprint 5: return computed data from PhoenixJob annotations
-	c.logger.Debug("GetBillingByDepartment: using mock data pending DB integration",
+	c.logger.Debug("GetBillingByDepartment: stub pending DB integration",
 		zap.String("period", period))
-	return apitypes.NewFakeK8sClient().GetBillingByDepartment(context.Background(), period)
+	return nil, nil
 }
 
 func (c *RealK8sClient) GetBillingRecords(_ context.Context, department string) ([]apitypes.BillingRecord, error) {
-	return apitypes.NewFakeK8sClient().GetBillingRecords(context.Background(), department)
+	// TODO Sprint 6: query TimescaleDB billing_records table
+	_ = department
+	return nil, nil
 }
 
 func (c *RealK8sClient) ListAlerts(_ context.Context) ([]apitypes.Alert, error) {
 	// TODO Sprint 6: query alert store
-	return apitypes.NewFakeK8sClient().ListAlerts(context.Background())
+	return nil, nil
 }
 
 func (c *RealK8sClient) ResolveAlert(_ context.Context, id string) error {
-	return apitypes.NewFakeK8sClient().ResolveAlert(context.Background(), id)
+	// TODO Sprint 6: query alert store
+	_ = id
+	return nil
 }
 
 // ── Internal helpers ──────────────────────────────────────────────

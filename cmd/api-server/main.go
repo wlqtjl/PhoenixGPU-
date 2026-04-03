@@ -24,6 +24,7 @@ var (
 type opts struct {
 	addr            string
 	metricsAddr     string
+	promURL         string
 	mock            bool
 	enableMigration bool
 }
@@ -32,6 +33,7 @@ func main() {
 	o := &opts{}
 	flag.StringVar(&o.addr, "addr", ":8090", "HTTP listen address")
 	flag.StringVar(&o.metricsAddr, "metrics-addr", "", "Legacy metrics listen address flag (accepted for backward compatibility; currently unused)")
+	flag.StringVar(&o.promURL, "prom-url", "http://prometheus:9090", "Prometheus base URL for DCGM metrics")
 	flag.BoolVar(&o.mock, "mock", false, "Use fake data")
 	flag.BoolVar(&o.enableMigration, "enable-migration", false, "Enable migration APIs")
 	showVersion := flag.Bool("version", false, "Print version and exit")
@@ -47,11 +49,9 @@ func main() {
 }
 
 func run(o *opts) error {
-	var client internal.K8sClientInterface
-	if o.mock {
-		client = internal.NewFakeK8sClient()
-	} else {
-		client = internal.NewFakeK8sClient()
+	client, err := buildK8sClient(o)
+	if err != nil {
+		return fmt.Errorf("init k8s client: %w", err)
 	}
 
 	router := internal.NewRouter(internal.RouterConfig{

@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"time"
 
-	apitypes "github.com/wlqtjl/PhoenixGPU/cmd/api-server/internal"
+	apitypes "github.com/wlqtjl/PhoenixGPU/pkg/types"
 )
 
 // promInstantResponse is the JSON shape of a Prometheus instant query result.
@@ -119,12 +119,4 @@ func parsePromRange(resp *http.Response) ([]apitypes.TimeSeriesPoint, error) {
 		})
 	}
 	return points, nil
-}
-
-// ── FakeClient wrapper for test access ────────────────────────────
-
-// NewFakeClient returns a K8sClientInterface backed by fake data.
-// Used in tests and when running without a real K8s cluster.
-func NewFakeClient() apitypes.K8sClientInterface {
-	return apitypes.NewFakeK8sClient()
 }

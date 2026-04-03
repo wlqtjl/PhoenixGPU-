@@ -220,6 +220,14 @@ export function useTriggerCheckpoint() {
   })
 }
 
+export function useResolveAlert() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => resolveAlert(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.alerts }),
+  })
+}
+
 // ── Mock data for development (used when VITE_MOCK=true) ───────
 
 export const MOCK: {

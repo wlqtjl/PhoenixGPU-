@@ -109,6 +109,9 @@ type AlertHook func(ctx context.Context, status QuotaStatus)
 
 // NewEngine creates a billing Engine.
 func NewEngine(store Store, logger *zap.Logger) *Engine {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Engine{store: store, logger: logger}
 }
 
