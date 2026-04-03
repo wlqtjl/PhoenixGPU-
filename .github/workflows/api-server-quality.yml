@@ -21,6 +21,14 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: gofmt check (api-server)
+        run: |
+          UNFORMATTED=$(gofmt -l cmd/api-server)
+          test -z "$UNFORMATTED" || (echo "$UNFORMATTED" && exit 1)
+
+      - name: go vet (api-server)
+        run: go vet ./cmd/api-server/...
+
       - name: Unit test + coverage (api-server)
         run: |
           go test ./cmd/api-server -count=1 -coverprofile=coverage-api-server.out
@@ -55,6 +63,21 @@ jobs:
 
       - name: Benchmark smoke (api-server)
         run: go test ./cmd/api-server -run '^$' -bench . -benchmem -count=1
+
+  stability:
+    name: L3.5 Stability (count=20)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Repeat tests (api-server)
+        run: go test ./cmd/api-server -count=20
 
   # L5/L6 说明：
   # - 集成与 E2E 建议在有 kind/k8s 资源的 workflow 中执行。
