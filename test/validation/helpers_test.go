@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -285,6 +284,3 @@ func parseInt(s string) int {
 	}
 	return n
 }
-
-// ignore suppresses unused import warnings.
-var _ = math.Sin
