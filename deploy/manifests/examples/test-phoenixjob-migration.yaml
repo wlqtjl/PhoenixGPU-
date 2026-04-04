@@ -1,0 +1,63 @@
+# PhoenixGPU — Migration Test Job
+# Tests: Live GPU migration with < 5s freeze window
+#
+# Usage:
+#   kubectl apply -f test-phoenixjob-migration.yaml
+#   # Wait for Running state, then trigger migration:
+#   curl -X POST http://<api-server>:8090/api/v1/jobs/default/migration-test/migrate \
+#     -H 'Content-Type: application/json' \
+#     -d '{"targetNode": "gpu-node-02"}'
+#   # Monitor migration status:
+#   curl http://<api-server>:8090/api/v1/jobs/default/migration-test/migration-status
+apiVersion: phoenixgpu.io/v1alpha1
+kind: PhoenixJob
+metadata:
+  name: migration-test
+  namespace: default
+  labels:
+    test-scenario: live-migration
+    phoenixgpu.io/test: "true"
+spec:
+  checkpoint:
+    intervalSeconds: 120
+    storageBackend: pvc
+    pvcName: phoenixgpu-snapshots
+    maxSnapshots: 3
+    preDump: true            # Enable pre-dump for faster migration
+  restorePolicy:
+    onNodeFailure: restore
+    restoreTimeoutSeconds: 120
+  billing:
+    department: qa-migration
+    project: migration-test
+    costCenter: test-migrate
+  template:
+    spec:
+      containers:
+        - name: training
+          image: pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
+          command:
+            - python3
+            - -c
+            - |
+              import torch, time, os
+              device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+              model = torch.nn.Linear(4096, 4096).to(device)
+              optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+              step = 0
+              while True:
+                  x = torch.randn(64, 4096, device=device)
+                  y = model(x)
+                  loss = y.sum()
+                  loss.backward()
+                  optimizer.step()
+                  optimizer.zero_grad()
+                  step += 1
+                  if step % 500 == 0:
+                      mem = torch.cuda.memory_allocated() / 1e6 if torch.cuda.is_available() else 0
+                      print(f'Step {step}, loss={loss.item():.4f}, mem={mem:.0f}MB')
+                  time.sleep(0.01)
+          resources:
+            limits:
+              nvidia.com/vgpu: "1"
+              nvidia.com/vgpu-memory: "8192"

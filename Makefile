@@ -14,7 +14,8 @@ CGO_ENABLED  := 0
 COMPONENTS := api-server phoenix-controller
 
 .PHONY: all build test lint fmt vet clean docker-build helm-lint kind-up kind-down help \
-	quality-api-server quality-api-server-race quality-api-server-bench
+	quality-api-server quality-api-server-race quality-api-server-bench \
+	validate validate-live validate-api
 
 ## ── Default ─────────────────────────────────────────────────────
 all: lint test build
@@ -132,6 +133,19 @@ kind-load:
 		kind load docker-image $(REGISTRY)/$$c:$(VERSION) --name phoenixgpu-dev; \
 	done
 
+## ── Validation ───────────────────────────────────────────────────
+validate:
+	@echo "→ Running deployment validation suite (mock mode)..."
+	bash hack/validate-deployment.sh --mock
+
+validate-live:
+	@echo "→ Running deployment validation suite (live cluster)..."
+	bash hack/validate-deployment.sh
+
+validate-api:
+	@echo "→ Running validation tests..."
+	$(GO) test ./test/validation/... -v -count=1 -timeout=5m
+
 ## ── Utilities ────────────────────────────────────────────────────
 clean:
 	rm -rf $(BINARY_DIR) coverage.out libvgpu/build
@@ -151,6 +165,9 @@ help:
 	@echo "  make lint           Run golangci-lint"
 	@echo "  make fmt            Format code"
 	@echo "  make generate       Regenerate CRD manifests & RBAC"
+	@echo "  make validate       Run deployment validation (mock mode)"
+	@echo "  make validate-live  Run deployment validation (live cluster)"
+	@echo "  make validate-api   Run API validation tests only"
 	@echo "  make docker-build   Build all Docker images"
 	@echo "  make helm-install   Deploy to current kubectl context"
 	@echo "  make kind-up        Create local KinD dev cluster"

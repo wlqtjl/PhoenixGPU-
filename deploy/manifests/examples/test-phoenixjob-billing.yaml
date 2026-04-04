@@ -1,0 +1,56 @@
+# PhoenixGPU — Billing Test Job
+# Tests: TFlops-h billing accuracy
+#
+# Usage:
+#   kubectl apply -f test-phoenixjob-billing.yaml
+#   # Wait 5 minutes, then check billing:
+#   curl http://<api-server>:8090/api/v1/billing/departments?period=daily
+#   curl http://<api-server>:8090/api/v1/billing/records?department=qa-billing
+apiVersion: phoenixgpu.io/v1alpha1
+kind: PhoenixJob
+metadata:
+  name: billing-accuracy-test
+  namespace: default
+  labels:
+    test-scenario: billing-accuracy
+    phoenixgpu.io/test: "true"
+spec:
+  checkpoint:
+    intervalSeconds: 300
+    storageBackend: pvc
+    pvcName: phoenixgpu-snapshots
+    maxSnapshots: 3
+  restorePolicy:
+    onNodeFailure: restart    # Billing test does not need HA restore
+  billing:
+    department: qa-billing
+    project: billing-test
+    costCenter: test-billing
+  template:
+    spec:
+      containers:
+        - name: gpu-workload
+          image: pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
+          command:
+            - python3
+            - -c
+            - |
+              import torch, time
+              if torch.cuda.is_available():
+                  device = torch.device('cuda')
+                  print(f'GPU: {torch.cuda.get_device_name(0)}')
+              else:
+                  device = torch.device('cpu')
+                  print('No GPU, using CPU')
+              x = torch.randn(1024, 1024, device=device)
+              step = 0
+              while True:
+                  y = torch.mm(x, x)
+                  step += 1
+                  if step % 1000 == 0:
+                      print(f'Step {step}, alloc={torch.cuda.memory_allocated()/1e6:.0f}MB')
+                  time.sleep(0.01)
+          resources:
+            limits:
+              nvidia.com/vgpu: "1"
+              nvidia.com/vgpu-memory: "4096"
