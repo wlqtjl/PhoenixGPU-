@@ -8,7 +8,10 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 // APIResponse is the unified response envelope for all API endpoints.
@@ -45,6 +48,13 @@ type RouterConfig struct {
 	EnableMock        bool
 	EnableMigration   bool
 	MigrationExecutor MigrationExecutor
+
+	// AuthTokens is a set of valid bearer tokens. If empty, authentication is disabled.
+	AuthTokens map[string]bool
+	// RateLimitRPS is the maximum requests per second per client IP. 0 disables rate limiting.
+	RateLimitRPS float64
+	// RateLimitBurst is the maximum burst size for rate limiting.
+	RateLimitBurst int
 }
 
 type Logger interface {
@@ -136,7 +146,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		method(http.MethodPost, http.HandlerFunc(h.resolveAlert)).ServeHTTP(w, r)
 	}))
 
-	return withRecovery(requestLogger(cfg.Logger, withMetrics(mux)))
+	return withRecovery(requestLogger(cfg.Logger, withRateLimit(cfg, withAuth(cfg, withMetrics(mux)))))
 }
 
 func method(m string, next http.Handler) http.Handler {
@@ -225,4 +235,113 @@ func (unavailableK8sClient) ListAlerts(context.Context) ([]Alert, error) {
 }
 func (unavailableK8sClient) ResolveAlert(context.Context, string) error {
 	return errors.New("k8s client unavailable")
+}
+
+// ─── Authentication middleware ───────────────────────────────────────────────
+
+// publicPaths are endpoints that do not require authentication (health/readiness probes).
+var publicPaths = map[string]bool{
+	"/healthz":  true,
+	"/readyz":   true,
+	"/metrics":  true,
+}
+
+// withAuth adds bearer token authentication to protected endpoints.
+// If no tokens are configured, authentication is disabled (backward-compatible).
+func withAuth(cfg RouterConfig, next http.Handler) http.Handler {
+	if len(cfg.AuthTokens) == 0 {
+		return next // auth disabled
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip auth for public endpoints
+		if publicPaths[r.URL.Path] {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			errResp(w, http.StatusUnauthorized, "missing Authorization header")
+			return
+		}
+
+		const bearerPrefix = "Bearer "
+		if !strings.HasPrefix(authHeader, bearerPrefix) {
+			errResp(w, http.StatusUnauthorized, "invalid Authorization header format")
+			return
+		}
+
+		token := strings.TrimPrefix(authHeader, bearerPrefix)
+		if !cfg.AuthTokens[token] {
+			errResp(w, http.StatusForbidden, "invalid or expired token")
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// ─── Rate limiting middleware ────────────────────────────────────────────────
+
+// ipRateLimiter maintains per-IP rate limiters.
+type ipRateLimiter struct {
+	mu       sync.Mutex
+	limiters map[string]*rate.Limiter
+	rps      rate.Limit
+	burst    int
+}
+
+func newIPRateLimiter(rps float64, burst int) *ipRateLimiter {
+	return &ipRateLimiter{
+		limiters: make(map[string]*rate.Limiter),
+		rps:      rate.Limit(rps),
+		burst:    burst,
+	}
+}
+
+func (i *ipRateLimiter) getLimiter(ip string) *rate.Limiter {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	limiter, exists := i.limiters[ip]
+	if !exists {
+		limiter = rate.NewLimiter(i.rps, i.burst)
+		i.limiters[ip] = limiter
+	}
+	return limiter
+}
+
+// withRateLimit adds per-IP rate limiting.
+// If RateLimitRPS is 0, rate limiting is disabled.
+func withRateLimit(cfg RouterConfig, next http.Handler) http.Handler {
+	if cfg.RateLimitRPS <= 0 {
+		return next // rate limiting disabled
+	}
+	burst := cfg.RateLimitBurst
+	if burst <= 0 {
+		burst = int(cfg.RateLimitRPS * 2)
+		if burst < 10 {
+			burst = 10
+		}
+	}
+	limiter := newIPRateLimiter(cfg.RateLimitRPS, burst)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip rate limiting for health probes
+		if publicPaths[r.URL.Path] {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		ip := r.RemoteAddr
+		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+			ip = strings.Split(fwd, ",")[0]
+		}
+		ip = strings.TrimSpace(ip)
+
+		if !limiter.getLimiter(ip).Allow() {
+			w.Header().Set("Retry-After", "1")
+			errResp(w, http.StatusTooManyRequests, "rate limit exceeded")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
