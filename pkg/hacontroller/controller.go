@@ -11,14 +11,20 @@ package hacontroller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/wlqtjl/PhoenixGPU/pkg/checkpoint"
 )
@@ -60,6 +66,20 @@ type PhoenixHAController struct {
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
+// PhoenixJobGVR is the GroupVersionResource for the PhoenixJob CRD.
+var PhoenixJobGVR = schema.GroupVersionResource{
+	Group:    "phoenixgpu.io",
+	Version:  "v1alpha1",
+	Resource: "phoenixjobs",
+}
+
+// PhoenixJobGVK is the GroupVersionKind for the PhoenixJob CRD.
+var PhoenixJobGVK = schema.GroupVersionKind{
+	Group:   "phoenixgpu.io",
+	Version: "v1alpha1",
+	Kind:    "PhoenixJob",
+}
+
 // Reconcile is the main reconcile loop for PhoenixJob.
 // It runs on every PhoenixJob change and handles the checkpoint scheduling.
 func (r *PhoenixHAController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -68,16 +88,17 @@ func (r *PhoenixHAController) Reconcile(ctx context.Context, req ctrl.Request) (
 		zap.String("name", req.Name),
 	)
 
-	// Fetch the PhoenixJob — using unstructured until CRD client is generated
-	// TODO: replace with typed client after running controller-gen
-	job := &unstructuredPhoenixJob{}
-	if err := r.Get(ctx, req.NamespacedName, job.Object()); err != nil {
+	// Fetch the PhoenixJob using an Unstructured object
+	obj := &unstructured.Unstructured{}
+	obj.SetGroupVersionKind(PhoenixJobGVK)
+	if err := r.Get(ctx, req.NamespacedName, obj); err != nil {
 		if client.IgnoreNotFound(err) == nil {
 			return ctrl.Result{}, nil // Job deleted, nothing to do
 		}
 		return ctrl.Result{}, fmt.Errorf("get PhoenixJob: %w", err)
 	}
 
+	job := &unstructuredPhoenixJob{obj: obj}
 	log.Debug("reconciling PhoenixJob", zap.String("phase", job.Phase()))
 
 	switch PhoenixJobPhase(job.Phase()) {
@@ -199,17 +220,24 @@ func (r *PhoenixHAController) initiateRestore(
 	log = log.With(zap.String("job", jobName), zap.String("namespace", namespace))
 
 	// Fetch job to get last checkpoint dir
-	job := &unstructuredPhoenixJob{}
+	obj := &unstructured.Unstructured{}
+	obj.SetGroupVersionKind(PhoenixJobGVK)
 	key := client.ObjectKey{Namespace: namespace, Name: jobName}
-	if err := r.Get(ctx, key, job.Object()); err != nil {
+	if err := r.Get(ctx, key, obj); err != nil {
 		log.Error("failed to fetch PhoenixJob for restore", zap.Error(err))
 		return
 	}
+	job := &unstructuredPhoenixJob{obj: obj}
 
 	lastDir := job.LastCheckpointDir()
 	if lastDir == "" {
 		log.Warn("no checkpoint available, cannot restore — job will restart from scratch")
 		return
+	}
+
+	// Update phase to Restoring
+	if err := r.updateJobPhase(ctx, job, PhaseRestoring); err != nil {
+		log.Error("failed to update job phase to Restoring", zap.Error(err))
 	}
 
 	log.Info("restoring from checkpoint", zap.String("snapshotDir", lastDir))
@@ -223,26 +251,54 @@ func (r *PhoenixHAController) initiateRestore(
 		log.Error("restore failed",
 			zap.String("snapshotDir", lastDir),
 			zap.Error(err))
+
 		// Increment restore attempt counter — if max reached, fail the job
+		attempts := job.RestoreAttempts() + 1
+		if attempts >= r.MaxRestoreAttempts {
+			log.Error("max restore attempts reached, marking job as Failed",
+				zap.Int("attempts", attempts))
+			_ = r.updateJobPhase(ctx, job, PhaseFailed)
+		}
 		return
 	}
 
 	log.Info("restore successful", zap.Int("newPID", pid))
+	// Transition back to Running
+	if err := r.updateJobPhase(ctx, job, PhaseRunning); err != nil {
+		log.Error("failed to update job phase to Running after restore", zap.Error(err))
+	}
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 func (r *PhoenixHAController) reconcileCheckpointing(
-	ctx context.Context, job *unstructuredPhoenixJob, log *zap.Logger,
+	_ context.Context, job *unstructuredPhoenixJob, log *zap.Logger,
 ) (ctrl.Result, error) {
-	log.Debug("job in Checkpointing phase, waiting for completion")
+	log.Debug("job in Checkpointing phase, monitoring checkpoint completion")
+
+	// Check if checkpoint has completed by checking if the dir was written
+	lastDir := job.LastCheckpointDir()
+	if lastDir != "" {
+		// Checkpoint directory present — transition back to Running
+		log.Info("checkpoint completed, transitioning back to Running",
+			zap.String("dir", lastDir))
+		// Phase transition will be handled by the next reconcile after status update
+	}
 	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 }
 
 func (r *PhoenixHAController) reconcileRestoring(
-	ctx context.Context, job *unstructuredPhoenixJob, log *zap.Logger,
+	_ context.Context, job *unstructuredPhoenixJob, log *zap.Logger,
 ) (ctrl.Result, error) {
-	log.Debug("job in Restoring phase, monitoring progress")
+	log.Debug("job in Restoring phase, monitoring restore progress")
+
+	attempts := job.RestoreAttempts()
+	if attempts >= r.MaxRestoreAttempts {
+		log.Error("max restore attempts exceeded in Restoring phase",
+			zap.Int("attempts", attempts),
+			zap.Int("max", r.MaxRestoreAttempts))
+		// Will be handled by the restore goroutine marking as Failed
+	}
 	return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 }
 
@@ -284,67 +340,124 @@ func (r *PhoenixHAController) snapshotDir(job *unstructuredPhoenixJob, seq int) 
 func (r *PhoenixHAController) updateCheckpointStatus(
 	ctx context.Context, job *unstructuredPhoenixJob, dir string, seq int,
 ) error {
-	// TODO: implement proper status patch via SSA (Server-Side Apply)
-	// Placeholder until typed CRD client is generated
-	_ = ctx
-	_ = dir
-	_ = seq
+	// Use Server-Side Apply (SSA) to patch the PhoenixJob status
+	patch := map[string]interface{}{
+		"apiVersion": "phoenixgpu.io/v1alpha1",
+		"kind":       "PhoenixJob",
+		"metadata": map[string]interface{}{
+			"name":      job.Name(),
+			"namespace": job.Namespace(),
+		},
+		"status": map[string]interface{}{
+			"lastCheckpointDir":  dir,
+			"lastCheckpointTime": time.Now().UTC().Format(time.RFC3339),
+			"checkpointCount":    seq,
+			"phase":              string(PhaseRunning),
+		},
+	}
+
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return fmt.Errorf("marshal status patch: %w", err)
+	}
+
+	obj := job.obj.DeepCopy()
+	err = r.Status().Patch(ctx, obj,
+		client.RawPatch(types.MergePatchType, patchBytes))
+	if err != nil {
+		return fmt.Errorf("patch PhoenixJob status: %w", err)
+	}
 	return nil
+}
+
+// updateJobPhase patches the PhoenixJob status phase field.
+func (r *PhoenixHAController) updateJobPhase(
+	ctx context.Context, job *unstructuredPhoenixJob, phase PhoenixJobPhase,
+) error {
+	patch := map[string]interface{}{
+		"status": map[string]interface{}{
+			"phase": string(phase),
+		},
+	}
+
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return fmt.Errorf("marshal phase patch: %w", err)
+	}
+
+	obj := job.obj.DeepCopy()
+	return r.Status().Patch(ctx, obj,
+		client.RawPatch(types.MergePatchType, patchBytes))
 }
 
 // SetupWithManager registers the controller with the controller-runtime manager.
 func (r *PhoenixHAController) SetupWithManager(mgr ctrl.Manager) error {
+	// Create an Unstructured object to watch PhoenixJob CRD
+	phoenixJob := &unstructured.Unstructured{}
+	phoenixJob.SetGroupVersionKind(PhoenixJobGVK)
+
 	return ctrl.NewControllerManagedBy(mgr).
-		// Watch PhoenixJob objects
-		// TODO: For(phoenixv1alpha1.PhoenixJob{}) once types are generated
+		For(phoenixJob).
+		Watches(&corev1.Pod{},
+			handler.EnqueueRequestsFromMapFunc(r.podToPhoenixJob)).
 		Complete(r)
 }
 
+// podToPhoenixJob maps Pod events to the owning PhoenixJob for reconciliation.
+func (r *PhoenixHAController) podToPhoenixJob(_ context.Context, obj client.Object) []reconcile.Request {
+	pod, ok := obj.(*corev1.Pod)
+	if !ok {
+		return nil
+	}
+	jobName, ok := pod.Labels["phoenixgpu.io/job-name"]
+	if !ok {
+		return nil
+	}
+	return []reconcile.Request{
+		{NamespacedName: client.ObjectKey{
+			Namespace: pod.Namespace,
+			Name:      jobName,
+		}},
+	}
+}
+
 // ─── unstructuredPhoenixJob ──────────────────────────────────────────────────
-// Thin wrapper until controller-gen produces typed structs.
+// Thin wrapper around Unstructured for typed access to PhoenixJob fields.
 
 type unstructuredPhoenixJob struct {
-	data map[string]interface{}
+	obj *unstructured.Unstructured
 }
 
 func (j *unstructuredPhoenixJob) Object() client.Object {
-	// placeholder — will be replaced by generated types
-	return nil
+	return j.obj
 }
 
 func (j *unstructuredPhoenixJob) Namespace() string {
-	return getString(j.data, "metadata", "namespace")
+	return j.obj.GetNamespace()
 }
-func (j *unstructuredPhoenixJob) Name() string  { return getString(j.data, "metadata", "name") }
-func (j *unstructuredPhoenixJob) Phase() string { return getString(j.data, "status", "phase") }
+func (j *unstructuredPhoenixJob) Name() string { return j.obj.GetName() }
+func (j *unstructuredPhoenixJob) Phase() string {
+	v, _, _ := unstructured.NestedString(j.obj.Object, "status", "phase")
+	return v
+}
 func (j *unstructuredPhoenixJob) LastCheckpointDir() string {
-	return getString(j.data, "status", "lastCheckpointDir")
+	v, _, _ := unstructured.NestedString(j.obj.Object, "status", "lastCheckpointDir")
+	return v
 }
 func (j *unstructuredPhoenixJob) LastCheckpointTime() time.Time {
-	ts := getString(j.data, "status", "lastCheckpointTime")
+	ts, _, _ := unstructured.NestedString(j.obj.Object, "status", "lastCheckpointTime")
 	t, _ := time.Parse(time.RFC3339, ts)
 	return t
 }
 func (j *unstructuredPhoenixJob) CheckpointCount() int {
-	v, _ := j.data["status"].(map[string]interface{})["checkpointCount"].(int)
-	return v
+	v, _, _ := unstructured.NestedInt64(j.obj.Object, "status", "checkpointCount")
+	return int(v)
+}
+func (j *unstructuredPhoenixJob) RestoreAttempts() int {
+	v, _, _ := unstructured.NestedInt64(j.obj.Object, "status", "restoreAttempts")
+	return int(v)
 }
 func (j *unstructuredPhoenixJob) CheckpointIntervalSeconds() int {
-	spec, _ := j.data["spec"].(map[string]interface{})
-	ckpt, _ := spec["checkpoint"].(map[string]interface{})
-	v, _ := ckpt["intervalSeconds"].(int)
-	return v
-}
-
-func getString(m map[string]interface{}, keys ...string) string {
-	var cur interface{} = m
-	for _, k := range keys {
-		mm, ok := cur.(map[string]interface{})
-		if !ok {
-			return ""
-		}
-		cur = mm[k]
-	}
-	s, _ := cur.(string)
-	return s
+	v, _, _ := unstructured.NestedInt64(j.obj.Object, "spec", "checkpoint", "intervalSeconds")
+	return int(v)
 }

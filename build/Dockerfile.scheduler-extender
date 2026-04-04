@@ -1,4 +1,4 @@
-# Multi-stage build: phoenix-api-server
+# Multi-stage build: phoenix-scheduler-extender
 # Final image: ~15MiB (distroless/static)
 FROM golang:1.22-alpine AS builder
 
@@ -14,15 +14,15 @@ ARG DATE=unknown
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build \
       -trimpath \
+      -tags schedulerfull \
       -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
-      -o /phoenix-api-server \
-      ./cmd/api-server
+      -o /scheduler-extender \
+      ./cmd/scheduler-extender/...
 
-# Final: distroless static (smallest possible)
 FROM gcr.io/distroless/static-debian12:nonroot
 
-COPY --from=builder /phoenix-api-server /phoenix-api-server
+COPY --from=builder /scheduler-extender /scheduler-extender
 
-EXPOSE 8090 8091
+EXPOSE 8888 8084
 
-ENTRYPOINT ["/phoenix-api-server"]
+ENTRYPOINT ["/scheduler-extender"]

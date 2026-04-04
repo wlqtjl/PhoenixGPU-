@@ -37,8 +37,10 @@
  * /tmp/phoenix-{pod-uid}.shm  (per-container, per-GPU)
  * Layout matches PhoenixSharedState in libvgpu.h
  */
-static phoenix_shared_state_t *g_shared = NULL;
-static pthread_mutex_t         g_lock   = PTHREAD_MUTEX_INITIALIZER;
+/* Non-static: accessed from cuda_hook.c, nvml_hook.c, phoenix_meter.c
+ * via weak extern declarations. */
+phoenix_shared_state_t *g_shared = NULL;
+static pthread_mutex_t  g_lock   = PTHREAD_MUTEX_INITIALIZER;
 
 /* ── Original dlsym pointer (before our override) ───────────────*/
 static void *(*real_dlsym)(void *, const char *) = NULL;
@@ -49,7 +51,7 @@ static void *(*real_dlsym)(void *, const char *) = NULL;
  *   PHOENIX_JOB_UID         PhoenixJob UID for metering (set by Webhook)
  *   PHOENIX_POD_NAMESPACE   Pod namespace for quota accounting
  */
-static size_t  g_vram_limit_bytes = 0;
+size_t  g_vram_limit_bytes = 0;
 static int     g_sm_limit_pct    = 100;
 static char    g_job_uid[256]    = {0};
 static char    g_namespace[256]  = {0};

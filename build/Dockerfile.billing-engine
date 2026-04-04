@@ -1,4 +1,4 @@
-# Multi-stage build: phoenix-api-server
+# Multi-stage build: phoenix-billing-engine
 # Final image: ~15MiB (distroless/static)
 FROM golang:1.22-alpine AS builder
 
@@ -14,15 +14,15 @@ ARG DATE=unknown
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build \
       -trimpath \
+      -tags "billingenginefull,billingfull" \
       -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
-      -o /phoenix-api-server \
-      ./cmd/api-server
+      -o /billing-engine \
+      ./cmd/billing-engine/...
 
-# Final: distroless static (smallest possible)
 FROM gcr.io/distroless/static-debian12:nonroot
 
-COPY --from=builder /phoenix-api-server /phoenix-api-server
+COPY --from=builder /billing-engine /billing-engine
 
-EXPOSE 8090 8091
+EXPOSE 8085 8086
 
-ENTRYPOINT ["/phoenix-api-server"]
+ENTRYPOINT ["/billing-engine"]
