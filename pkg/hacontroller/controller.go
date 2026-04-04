@@ -231,6 +231,7 @@ func (r *PhoenixHAController) HandleNodeFault(ctx context.Context, event FaultEv
 			defer func() {
 				if rec := recover(); rec != nil {
 					log.Error("panic in restore goroutine",
+						zap.String("namespace", ns),
 						zap.String("job", jn),
 						zap.Any("panic", rec))
 				}
@@ -358,7 +359,8 @@ func (r *PhoenixHAController) getJobPod(
 	return &podList.Items[0], nil
 }
 
-// pidMaxLimit is the Linux kernel's maximum PID value (cat /proc/sys/kernel/pid_max).
+// pidMaxLimit is the Linux kernel's compile-time maximum PID value (PID_MAX_LIMIT),
+// which is the upper bound for the runtime-configurable /proc/sys/kernel/pid_max.
 const pidMaxLimit = 4194304
 
 func (r *PhoenixHAController) getPIDFromPod(ctx context.Context, pod *corev1.Pod) (int, error) {
