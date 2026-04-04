@@ -168,8 +168,8 @@ func (e *Engine) Record(ctx context.Context, r UsageRecord) error {
 		zap.Float64("tflopsHours", r.TFlopsHours),
 		zap.Float64("costCNY", r.CostCNY))
 
-	// Async quota check — don't block the caller
-	go e.checkQuota(context.Background(), r)
+	// Async quota check — don't block the caller, but use a derived context
+	go e.checkQuota(ctx, r)
 
 	return nil
 }
@@ -182,7 +182,13 @@ func (e *Engine) checkQuota(ctx context.Context, r UsageRecord) {
 	}
 
 	status, err := e.store.GetQuotaStatus(ctx, tenantID, "monthly")
-	if err != nil || status == nil {
+	if err != nil {
+		e.logger.Error("failed to get quota status",
+			zap.String("tenant", tenantID),
+			zap.Error(err))
+		return
+	}
+	if status == nil {
 		return
 	}
 
@@ -195,8 +201,17 @@ func (e *Engine) checkQuota(ctx context.Context, r UsageRecord) {
 		e.logger.Warn("quota soft limit approaching",
 			zap.String("tenant", tenantID),
 			zap.Float64("usedPct", status.UsedPct))
-		for _, hook := range e.alertHooks {
-			hook(ctx, *status)
+		for i, hook := range e.alertHooks {
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						e.logger.Error("alert hook panicked",
+							zap.Int("hookIndex", i),
+							zap.Any("panic", r))
+					}
+				}()
+				hook(ctx, *status)
+			}()
 		}
 	}
 }

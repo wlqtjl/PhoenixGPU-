@@ -13,6 +13,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -58,6 +62,13 @@ type PhoenixHAController struct {
 	CheckpointInterval    time.Duration
 	RestoreTimeoutSeconds int
 	MaxRestoreAttempts    int
+
+	// MaxConcurrentRestores limits the number of parallel restore goroutines.
+	MaxConcurrentRestores int
+
+	// restoreSem is a semaphore channel to limit concurrent restores.
+	restoreSem     chan struct{}
+	restoreSemOnce sync.Once
 }
 
 // +kubebuilder:rbac:groups=phoenixgpu.io,resources=phoenixjobs,verbs=get;list;watch;create;update;patch;delete
@@ -184,6 +195,15 @@ func (r *PhoenixHAController) HandleNodeFault(ctx context.Context, event FaultEv
 	log := r.Logger.With(zap.String("faultedNode", event.NodeName))
 	log.Warn("node fault detected, scanning for affected PhoenixJobs")
 
+	// Lazily initialize the restore semaphore
+	r.restoreSemOnce.Do(func() {
+		maxConc := r.MaxConcurrentRestores
+		if maxConc <= 0 {
+			maxConc = 10 // sensible default
+		}
+		r.restoreSem = make(chan struct{}, maxConc)
+	})
+
 	// List all Pods on the faulted node
 	podList := &corev1.PodList{}
 	if err := r.List(ctx, podList,
@@ -205,7 +225,18 @@ func (r *PhoenixHAController) HandleNodeFault(ctx context.Context, event FaultEv
 			zap.String("job", jobName),
 			zap.String("namespace", pod.Namespace))
 
-		go r.initiateRestore(context.Background(), pod.Namespace, jobName, log)
+		// Acquire semaphore slot to limit concurrent restores
+		ns, jn := pod.Namespace, jobName
+		go func() {
+			select {
+			case r.restoreSem <- struct{}{}:
+				defer func() { <-r.restoreSem }()
+				r.initiateRestore(ctx, ns, jn, log)
+			case <-ctx.Done():
+				log.Warn("context cancelled before restore could start",
+					zap.String("job", jn))
+			}
+		}()
 	}
 
 	if affected == 0 {
@@ -257,7 +288,9 @@ func (r *PhoenixHAController) initiateRestore(
 		if attempts >= r.MaxRestoreAttempts {
 			log.Error("max restore attempts reached, marking job as Failed",
 				zap.Int("attempts", attempts))
-			_ = r.updateJobPhase(ctx, job, PhaseFailed)
+			if err := r.updateJobPhase(ctx, job, PhaseFailed); err != nil {
+				log.Error("failed to update job phase to Failed", zap.Error(err))
+			}
 		}
 		return
 	}
@@ -318,18 +351,142 @@ func (r *PhoenixHAController) getJobPod(
 	return &podList.Items[0], nil
 }
 
-func (r *PhoenixHAController) getPIDFromPod(_ context.Context, pod *corev1.Pod) (int, error) {
-	// TODO: implement via /proc/<pid> inspection or a sidecar agent
-	// For Sprint 1 we use the annotation set by Device Plugin
-	pidStr, ok := pod.Annotations["phoenixgpu.io/main-pid"]
-	if !ok {
-		return 0, fmt.Errorf("pod %s missing phoenixgpu.io/main-pid annotation", pod.Name)
+func (r *PhoenixHAController) getPIDFromPod(ctx context.Context, pod *corev1.Pod) (int, error) {
+	// Strategy 1: annotation set by Device Plugin (fast path)
+	if pidStr, ok := pod.Annotations["phoenixgpu.io/main-pid"]; ok {
+		var pid int
+		if _, err := fmt.Sscanf(pidStr, "%d", &pid); err != nil {
+			r.Logger.Warn("invalid pid annotation, falling back to container status",
+				zap.String("pod", pod.Name), zap.String("pidStr", pidStr))
+		} else if pid > 0 {
+			return pid, nil
+		}
 	}
-	var pid int
-	if _, err := fmt.Sscanf(pidStr, "%d", &pid); err != nil {
-		return 0, fmt.Errorf("parse pid annotation %q: %w", pidStr, err)
+
+	// Strategy 2: extract PID from container status (containerID → PID via runtime)
+	pid, err := r.getPIDFromContainerStatus(ctx, pod)
+	if err == nil && pid > 0 {
+		return pid, nil
 	}
+	if err != nil {
+		r.Logger.Debug("container status PID lookup failed", zap.Error(err))
+	}
+
+	return 0, fmt.Errorf("pod %s/%s: unable to determine main PID (no annotation and container status lookup failed)",
+		pod.Namespace, pod.Name)
+}
+
+// getPIDFromContainerStatus attempts to extract PID from the pod's container status.
+// It reads /proc on the host to find the PID matching the container ID.
+func (r *PhoenixHAController) getPIDFromContainerStatus(_ context.Context, pod *corev1.Pod) (int, error) {
+	if len(pod.Status.ContainerStatuses) == 0 {
+		return 0, fmt.Errorf("pod %s has no container statuses", pod.Name)
+	}
+
+	// Find the main training container (prefer container named "training" or first GPU container)
+	var containerID string
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.State.Running == nil {
+			continue
+		}
+		if cs.Name == "training" || cs.Name == "main" {
+			containerID = cs.ContainerID
+			break
+		}
+		if containerID == "" {
+			containerID = cs.ContainerID
+		}
+	}
+
+	if containerID == "" {
+		return 0, fmt.Errorf("pod %s has no running containers", pod.Name)
+	}
+
+	// Parse container ID (format: "containerd://abc123..." or "docker://abc123...")
+	parts := strings.SplitN(containerID, "://", 2)
+	if len(parts) != 2 || parts[1] == "" {
+		return 0, fmt.Errorf("invalid container ID format: %s", containerID)
+	}
+	cid := parts[1]
+
+	// Look up PID from /proc by scanning for the container ID in cgroup
+	pid, err := findPIDForContainer(cid)
+	if err != nil {
+		return 0, fmt.Errorf("find PID for container %s: %w", cid, err)
+	}
+
 	return pid, nil
+}
+
+// findPIDForContainer scans /proc to find the init PID of a container.
+func findPIDForContainer(containerID string) (int, error) {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return 0, fmt.Errorf("read /proc: %w", err)
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue // not a PID directory
+		}
+
+		cgroupPath := fmt.Sprintf("/proc/%d/cgroup", pid)
+		if !fileContains(cgroupPath, containerID) {
+			continue
+		}
+
+		// Check NSpid line to find PID 1 in the container namespace
+		statusPath := fmt.Sprintf("/proc/%d/status", pid)
+		if isContainerInitProcess(statusPath) {
+			return pid, nil
+		}
+	}
+
+	return 0, fmt.Errorf("no process found for container %s", containerID)
+}
+
+// fileContains efficiently checks if a file contains a substring by scanning line-by-line.
+func fileContains(path, substr string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	buf := make([]byte, 4096) // cgroup files are typically small
+	n, err := f.Read(buf)
+	if n == 0 {
+		return false
+	}
+	return strings.Contains(string(buf[:n]), substr)
+}
+
+// isContainerInitProcess checks if the process at statusPath is PID 1 inside a container.
+func isContainerInitProcess(statusPath string) bool {
+	f, err := os.Open(statusPath)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	buf := make([]byte, 8192) // /proc/PID/status is typically < 2KB
+	n, _ := f.Read(buf)
+	if n == 0 {
+		return false
+	}
+
+	for _, line := range strings.Split(string(buf[:n]), "\n") {
+		if strings.HasPrefix(line, "NSpid:") {
+			fields := strings.Fields(line)
+			// If last field is "1", this is PID 1 in the container namespace
+			return len(fields) >= 3 && fields[len(fields)-1] == "1"
+		}
+	}
+	return false
 }
 
 func (r *PhoenixHAController) snapshotDir(job *unstructuredPhoenixJob, seq int) string {

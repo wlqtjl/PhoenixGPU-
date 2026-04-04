@@ -16,10 +16,55 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.uber.org/zap"
 )
+
+// ─── Prometheus metrics for CRIU operations ──────────────────────────────────
+
+var (
+	criuMetricsOnce    sync.Once
+	criuDumpDuration   *prometheus.HistogramVec
+	criuDumpTotal      *prometheus.CounterVec
+	criuRestoreDuration *prometheus.HistogramVec
+	criuRestoreTotal   *prometheus.CounterVec
+	criuSnapshotBytes  *prometheus.GaugeVec
+)
+
+func initCRIUMetrics() {
+	criuMetricsOnce.Do(func() {
+		criuDumpDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "phoenixgpu_criu_dump_duration_seconds",
+			Help:    "CRIU dump operation duration in seconds",
+			Buckets: []float64{1, 5, 10, 30, 60, 120, 300},
+		}, []string{"result"})
+
+		criuDumpTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "phoenixgpu_criu_dump_total",
+			Help: "Total number of CRIU dump operations",
+		}, []string{"result"})
+
+		criuRestoreDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "phoenixgpu_criu_restore_duration_seconds",
+			Help:    "CRIU restore operation duration in seconds",
+			Buckets: []float64{1, 5, 10, 30, 60, 120, 300},
+		}, []string{"result"})
+
+		criuRestoreTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "phoenixgpu_criu_restore_total",
+			Help: "Total number of CRIU restore operations",
+		}, []string{"result"})
+
+		criuSnapshotBytes = promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "phoenixgpu_criu_snapshot_bytes",
+			Help: "Size of the last checkpoint snapshot in bytes",
+		}, []string{"dir"})
+	})
+}
 
 // CRIUCheckpointer implements Checkpointer using CRIU.
 // It wraps the `criu` CLI and handles GPU context via the cuda-checkpoint plugin.
@@ -48,6 +93,8 @@ func NewCRIUCheckpointer(checkpointDir string, logger *zap.Logger) (*CRIUCheckpo
 	if err != nil {
 		return nil, fmt.Errorf("criu binary not found in PATH: %w", err)
 	}
+
+	initCRIUMetrics()
 
 	c := &CRIUCheckpointer{
 		criuBin:       criuBin,
@@ -78,9 +125,36 @@ func (c *CRIUCheckpointer) Available() error {
 	return nil
 }
 
+// validateDir ensures the directory path is safe for use with CRIU commands.
+// It rejects empty paths, relative paths, and paths containing suspicious sequences.
+func validateDir(dir string) error {
+	if dir == "" {
+		return fmt.Errorf("checkpoint directory must not be empty")
+	}
+	// Reject null bytes that could be used for injection
+	if strings.ContainsRune(dir, '\x00') {
+		return fmt.Errorf("checkpoint directory contains null byte")
+	}
+	// Reject path traversal sequences before cleaning
+	if strings.Contains(dir, "..") {
+		return fmt.Errorf("checkpoint directory must not contain path traversal: %s", dir)
+	}
+	if !filepath.IsAbs(dir) {
+		return fmt.Errorf("checkpoint directory must be an absolute path: %s", dir)
+	}
+	return nil
+}
+
 // Dump performs a full checkpoint of the process with GPU context.
 // The process is frozen after dump (use PreDump for live checkpoints).
 func (c *CRIUCheckpointer) Dump(ctx context.Context, pid int, dir string) error {
+	if err := validateDir(dir); err != nil {
+		return fmt.Errorf("invalid checkpoint dir: %w", err)
+	}
+	if pid <= 0 {
+		return fmt.Errorf("invalid pid: %d", pid)
+	}
+
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("mkdir checkpoint dir %s: %w", dir, err)
 	}
@@ -114,6 +188,10 @@ func (c *CRIUCheckpointer) Dump(ctx context.Context, pid int, dir string) error 
 	elapsed := time.Since(start)
 
 	if err != nil {
+		if criuDumpTotal != nil {
+			criuDumpTotal.WithLabelValues("failure").Inc()
+			criuDumpDuration.WithLabelValues("failure").Observe(elapsed.Seconds())
+		}
 		c.logger.Error("CRIU dump failed",
 			zap.Int("pid", pid),
 			zap.String("dir", dir),
@@ -124,6 +202,11 @@ func (c *CRIUCheckpointer) Dump(ctx context.Context, pid int, dir string) error 
 	}
 
 	size, _ := dirSize(dir)
+	if criuDumpTotal != nil {
+		criuDumpTotal.WithLabelValues("success").Inc()
+		criuDumpDuration.WithLabelValues("success").Observe(elapsed.Seconds())
+		criuSnapshotBytes.WithLabelValues(dir).Set(float64(size))
+	}
 	c.logger.Info("CRIU dump successful",
 		zap.Int("pid", pid),
 		zap.Duration("elapsed", elapsed),
@@ -135,6 +218,13 @@ func (c *CRIUCheckpointer) Dump(ctx context.Context, pid int, dir string) error 
 // PreDump performs a non-disruptive pre-dump (writes dirty memory pages).
 // Use before Dump to reduce freeze time for large models.
 func (c *CRIUCheckpointer) PreDump(ctx context.Context, pid int, dir string) error {
+	if err := validateDir(dir); err != nil {
+		return fmt.Errorf("invalid pre-dump dir: %w", err)
+	}
+	if pid <= 0 {
+		return fmt.Errorf("invalid pid: %d", pid)
+	}
+
 	preDumpDir := filepath.Join(dir, "pre-dump")
 	if err := os.MkdirAll(preDumpDir, 0755); err != nil {
 		return fmt.Errorf("mkdir pre-dump dir: %w", err)
@@ -163,6 +253,10 @@ func (c *CRIUCheckpointer) PreDump(ctx context.Context, pid int, dir string) err
 // Restore starts a new process from a checkpoint directory.
 // Returns the PID of the restored process.
 func (c *CRIUCheckpointer) Restore(ctx context.Context, dir string) (int, error) {
+	if err := validateDir(dir); err != nil {
+		return 0, fmt.Errorf("invalid restore dir: %w", err)
+	}
+
 	c.logger.Info("starting CRIU restore", zap.String("dir", dir))
 	start := time.Now()
 
@@ -186,6 +280,10 @@ func (c *CRIUCheckpointer) Restore(ctx context.Context, dir string) (int, error)
 	elapsed := time.Since(start)
 
 	if err != nil {
+		if criuRestoreTotal != nil {
+			criuRestoreTotal.WithLabelValues("failure").Inc()
+			criuRestoreDuration.WithLabelValues("failure").Observe(elapsed.Seconds())
+		}
 		c.logger.Error("CRIU restore failed",
 			zap.String("dir", dir),
 			zap.Duration("elapsed", elapsed),
@@ -196,6 +294,10 @@ func (c *CRIUCheckpointer) Restore(ctx context.Context, dir string) (int, error)
 
 	// Parse restored PID from output
 	pid, parseErr := parseRestoredPID(string(out))
+	if criuRestoreTotal != nil {
+		criuRestoreTotal.WithLabelValues("success").Inc()
+		criuRestoreDuration.WithLabelValues("success").Observe(elapsed.Seconds())
+	}
 	c.logger.Info("CRIU restore successful",
 		zap.Int("restoredPID", pid),
 		zap.Duration("elapsed", elapsed))
