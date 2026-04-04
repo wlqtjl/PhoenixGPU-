@@ -228,6 +228,14 @@ func (r *PhoenixHAController) HandleNodeFault(ctx context.Context, event FaultEv
 		// Acquire semaphore slot to limit concurrent restores
 		ns, jn := pod.Namespace, jobName
 		go func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					log.Error("panic in restore goroutine",
+						zap.String("namespace", ns),
+						zap.String("job", jn),
+						zap.Any("panic", rec))
+				}
+			}()
 			select {
 			case r.restoreSem <- struct{}{}:
 				defer func() { <-r.restoreSem }()
@@ -351,14 +359,18 @@ func (r *PhoenixHAController) getJobPod(
 	return &podList.Items[0], nil
 }
 
+// pidMaxLimit is the Linux kernel's compile-time maximum PID value (PID_MAX_LIMIT),
+// which is the upper bound for the runtime-configurable /proc/sys/kernel/pid_max.
+const pidMaxLimit = 4194304
+
 func (r *PhoenixHAController) getPIDFromPod(ctx context.Context, pod *corev1.Pod) (int, error) {
 	// Strategy 1: annotation set by Device Plugin (fast path)
 	if pidStr, ok := pod.Annotations["phoenixgpu.io/main-pid"]; ok {
-		var pid int
-		if _, err := fmt.Sscanf(pidStr, "%d", &pid); err != nil {
+		pid, err := strconv.Atoi(pidStr)
+		if err != nil {
 			r.Logger.Warn("invalid pid annotation, falling back to container status",
 				zap.String("pod", pod.Name), zap.String("pidStr", pidStr))
-		} else if pid > 0 {
+		} else if pid > 0 && pid <= pidMaxLimit {
 			return pid, nil
 		}
 	}
