@@ -1,0 +1,106 @@
+# PhoenixGPU — vGPU Sharing Test Jobs
+# Tests: Multiple tasks sharing a single GPU with VRAM isolation
+#
+# Usage:
+#   kubectl apply -f test-phoenixjob-vgpu-sharing.yaml
+#   # Both jobs should be scheduled on the same GPU node
+#   # Verify via WebUI Nodes page or:
+#   kubectl get phoenixjobs -o wide
+#   curl http://<api-server>:8090/api/v1/nodes
+#
+# Expected: Both tasks run concurrently, each limited to 4096 MiB VRAM
+
+---
+apiVersion: phoenixgpu.io/v1alpha1
+kind: PhoenixJob
+metadata:
+  name: vgpu-share-task-a
+  namespace: default
+  labels:
+    test-scenario: vgpu-sharing
+    phoenixgpu.io/test: "true"
+    test-pair: vgpu-share
+spec:
+  checkpoint:
+    intervalSeconds: 300
+    storageBackend: pvc
+    pvcName: phoenixgpu-snapshots
+  restorePolicy:
+    onNodeFailure: restart
+  billing:
+    department: qa-vgpu
+    project: vgpu-sharing-test
+  template:
+    spec:
+      containers:
+        - name: task-a
+          image: pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
+          command:
+            - python3
+            - -c
+            - |
+              import torch, time
+              device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+              print(f'Task A started on {device}')
+              # Allocate moderate VRAM (should stay within 4GiB slice)
+              tensors = [torch.randn(512, 512, device=device) for _ in range(50)]
+              step = 0
+              while True:
+                  for t in tensors:
+                      _ = torch.mm(t, t)
+                  step += 1
+                  if step % 100 == 0:
+                      mem = torch.cuda.memory_allocated() / 1e6 if torch.cuda.is_available() else 0
+                      print(f'Task A step {step}, mem={mem:.0f}MB')
+                  time.sleep(0.05)
+          resources:
+            limits:
+              nvidia.com/vgpu: "1"
+              nvidia.com/vgpu-memory: "4096"
+
+---
+apiVersion: phoenixgpu.io/v1alpha1
+kind: PhoenixJob
+metadata:
+  name: vgpu-share-task-b
+  namespace: default
+  labels:
+    test-scenario: vgpu-sharing
+    phoenixgpu.io/test: "true"
+    test-pair: vgpu-share
+spec:
+  checkpoint:
+    intervalSeconds: 300
+    storageBackend: pvc
+    pvcName: phoenixgpu-snapshots
+  restorePolicy:
+    onNodeFailure: restart
+  billing:
+    department: qa-vgpu
+    project: vgpu-sharing-test
+  template:
+    spec:
+      containers:
+        - name: task-b
+          image: pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
+          command:
+            - python3
+            - -c
+            - |
+              import torch, time
+              device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+              print(f'Task B started on {device}')
+              tensors = [torch.randn(512, 512, device=device) for _ in range(50)]
+              step = 0
+              while True:
+                  for t in tensors:
+                      _ = torch.mm(t, t)
+                  step += 1
+                  if step % 100 == 0:
+                      mem = torch.cuda.memory_allocated() / 1e6 if torch.cuda.is_available() else 0
+                      print(f'Task B step {step}, mem={mem:.0f}MB')
+                  time.sleep(0.05)
+          resources:
+            limits:
+              nvidia.com/vgpu: "1"
+              nvidia.com/vgpu-memory: "4096"

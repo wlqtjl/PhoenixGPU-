@@ -1,0 +1,66 @@
+# PhoenixGPU — HA Recovery Test Job
+# Tests: 60-second fault recovery SLA
+#
+# Usage:
+#   kubectl apply -f test-phoenixjob-ha.yaml
+#   kubectl get phoenixjobs -w         # observe phase transitions
+#
+# Expected lifecycle:
+#   Pending -> Running -> Checkpointing -> Running (loop)
+#   On fault: Running -> Restoring -> Running (< 60s)
+apiVersion: phoenixgpu.io/v1alpha1
+kind: PhoenixJob
+metadata:
+  name: ha-recovery-test
+  namespace: default
+  labels:
+    test-scenario: ha-recovery
+    phoenixgpu.io/test: "true"
+spec:
+  checkpoint:
+    intervalSeconds: 60        # Frequent checkpoints for faster testing
+    storageBackend: pvc
+    pvcName: phoenixgpu-snapshots
+    maxSnapshots: 5
+    preDump: false
+  restorePolicy:
+    onNodeFailure: restore     # Automatic HA recovery
+    restoreTimeoutSeconds: 120
+    maxRestoreAttempts: 3
+  billing:
+    department: qa-team
+    project: ha-recovery-test
+    costCenter: test-001
+  template:
+    spec:
+      containers:
+        - name: training
+          image: pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
+          command:
+            - python3
+            - -c
+            - |
+              import time, os
+              counter_file = '/workspace/step.txt'
+              step = 0
+              if os.path.exists(counter_file):
+                  with open(counter_file) as f:
+                      step = int(f.read().strip())
+                  print(f'Resumed from step {step}')
+              while True:
+                  step += 1
+                  with open(counter_file, 'w') as f:
+                      f.write(str(step))
+                  if step % 100 == 0:
+                      print(f'Step {step}')
+                  time.sleep(0.1)
+          resources:
+            limits:
+              nvidia.com/vgpu: "1"
+              nvidia.com/vgpu-memory: "4096"
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+      volumes:
+        - name: workspace
+          emptyDir: {}
