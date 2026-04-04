@@ -283,31 +283,60 @@ func withAuth(cfg RouterConfig, next http.Handler) http.Handler {
 
 // ─── Rate limiting middleware ────────────────────────────────────────────────
 
-// ipRateLimiter maintains per-IP rate limiters.
+// ipRateLimiter maintains per-IP rate limiters with automatic cleanup of stale entries.
 type ipRateLimiter struct {
 	mu       sync.Mutex
-	limiters map[string]*rate.Limiter
+	limiters map[string]*rateLimiterEntry
 	rps      rate.Limit
 	burst    int
 }
 
+type rateLimiterEntry struct {
+	limiter  *rate.Limiter
+	lastSeen time.Time
+}
+
 func newIPRateLimiter(rps float64, burst int) *ipRateLimiter {
-	return &ipRateLimiter{
-		limiters: make(map[string]*rate.Limiter),
+	rl := &ipRateLimiter{
+		limiters: make(map[string]*rateLimiterEntry),
 		rps:      rate.Limit(rps),
 		burst:    burst,
 	}
+	// Periodically clean up stale entries to prevent memory growth
+	go rl.cleanupLoop()
+	return rl
 }
 
 func (i *ipRateLimiter) getLimiter(ip string) *rate.Limiter {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	limiter, exists := i.limiters[ip]
+	entry, exists := i.limiters[ip]
 	if !exists {
-		limiter = rate.NewLimiter(i.rps, i.burst)
-		i.limiters[ip] = limiter
+		entry = &rateLimiterEntry{
+			limiter:  rate.NewLimiter(i.rps, i.burst),
+			lastSeen: time.Now(),
+		}
+		i.limiters[ip] = entry
+	} else {
+		entry.lastSeen = time.Now()
 	}
-	return limiter
+	return entry.limiter
+}
+
+// cleanupLoop removes rate limiter entries that haven't been seen for 10 minutes.
+func (i *ipRateLimiter) cleanupLoop() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		i.mu.Lock()
+		cutoff := time.Now().Add(-10 * time.Minute)
+		for ip, entry := range i.limiters {
+			if entry.lastSeen.Before(cutoff) {
+				delete(i.limiters, ip)
+			}
+		}
+		i.mu.Unlock()
+	}
 }
 
 // withRateLimit adds per-IP rate limiting.
@@ -318,6 +347,8 @@ func withRateLimit(cfg RouterConfig, next http.Handler) http.Handler {
 	}
 	burst := cfg.RateLimitBurst
 	if burst <= 0 {
+		// Default burst to 2× RPS (minimum 10) to allow short traffic spikes
+		// while still enforcing the average rate.
 		burst = int(cfg.RateLimitRPS * 2)
 		if burst < 10 {
 			burst = 10

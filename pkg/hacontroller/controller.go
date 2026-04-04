@@ -435,32 +435,58 @@ func findPIDForContainer(containerID string) (int, error) {
 		}
 
 		cgroupPath := fmt.Sprintf("/proc/%d/cgroup", pid)
-		data, err := os.ReadFile(cgroupPath)
-		if err != nil {
+		if !fileContains(cgroupPath, containerID) {
 			continue
 		}
 
-		if strings.Contains(string(data), containerID) {
-			// Verify this is PID 1 inside the container (init process)
-			statusPath := fmt.Sprintf("/proc/%d/status", pid)
-			statusData, err := os.ReadFile(statusPath)
-			if err != nil {
-				continue
-			}
-			// Check NSpid line — format: "NSpid:\t<host-pid>\t<ns-pid>"
-			for _, line := range strings.Split(string(statusData), "\n") {
-				if strings.HasPrefix(line, "NSpid:") {
-					fields := strings.Fields(line)
-					// If last field is "1", this is PID 1 in the container namespace
-					if len(fields) >= 3 && fields[len(fields)-1] == "1" {
-						return pid, nil
-					}
-				}
-			}
+		// Check NSpid line to find PID 1 in the container namespace
+		statusPath := fmt.Sprintf("/proc/%d/status", pid)
+		if isContainerInitProcess(statusPath) {
+			return pid, nil
 		}
 	}
 
 	return 0, fmt.Errorf("no process found for container %s", containerID)
+}
+
+// fileContains efficiently checks if a file contains a substring by scanning line-by-line.
+func fileContains(path, substr string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	buf := make([]byte, 4096) // cgroup files are typically small
+	n, err := f.Read(buf)
+	if n == 0 {
+		return false
+	}
+	return strings.Contains(string(buf[:n]), substr)
+}
+
+// isContainerInitProcess checks if the process at statusPath is PID 1 inside a container.
+func isContainerInitProcess(statusPath string) bool {
+	f, err := os.Open(statusPath)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	buf := make([]byte, 8192) // /proc/PID/status is typically < 2KB
+	n, _ := f.Read(buf)
+	if n == 0 {
+		return false
+	}
+
+	for _, line := range strings.Split(string(buf[:n]), "\n") {
+		if strings.HasPrefix(line, "NSpid:") {
+			fields := strings.Fields(line)
+			// If last field is "1", this is PID 1 in the container namespace
+			return len(fields) >= 3 && fields[len(fields)-1] == "1"
+		}
+	}
+	return false
 }
 
 func (r *PhoenixHAController) snapshotDir(job *unstructuredPhoenixJob, seq int) string {

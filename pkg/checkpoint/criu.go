@@ -131,17 +131,16 @@ func validateDir(dir string) error {
 	if dir == "" {
 		return fmt.Errorf("checkpoint directory must not be empty")
 	}
-	if !filepath.IsAbs(dir) {
-		return fmt.Errorf("checkpoint directory must be an absolute path: %s", dir)
-	}
-	// Clean the path and ensure it matches the original to prevent traversal
-	cleaned := filepath.Clean(dir)
-	if strings.Contains(cleaned, "..") {
-		return fmt.Errorf("checkpoint directory must not contain path traversal: %s", dir)
-	}
 	// Reject null bytes that could be used for injection
 	if strings.ContainsRune(dir, '\x00') {
-		return fmt.Errorf("checkpoint directory contains null byte: %s", dir)
+		return fmt.Errorf("checkpoint directory contains null byte")
+	}
+	// Reject path traversal sequences before cleaning
+	if strings.Contains(dir, "..") {
+		return fmt.Errorf("checkpoint directory must not contain path traversal: %s", dir)
+	}
+	if !filepath.IsAbs(dir) {
+		return fmt.Errorf("checkpoint directory must be an absolute path: %s", dir)
 	}
 	return nil
 }
