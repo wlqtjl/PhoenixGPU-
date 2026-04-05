@@ -224,9 +224,13 @@ func (e *RealExecutor) Execute(ctx context.Context, plan Plan) (*Result, error) 
 		return e.restore(ctx, plan)
 	}, log); err != nil {
 		// Critical: restore failed — source process may still be frozen
-		// Attempt to un-freeze source as recovery
+		// Attempt to un-freeze source as recovery.
+		// Use a separate timeout context — the parent ctx may already be
+		// cancelled, but we still need to attempt the safety unfreeze.
 		log.Error("restore failed — attempting source recovery", zap.Error(err))
-		_ = e.unfreeze(context.Background(), plan) // best-effort
+		unfreezeCtx, unfreezeCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		_ = e.unfreeze(unfreezeCtx, plan) // best-effort
+		unfreezeCancel()
 		return result, err
 	}
 

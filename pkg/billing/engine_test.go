@@ -181,8 +181,9 @@ func TestRecord_QuotaAlertFired(t *testing.T) {
 	}
 
 	var alertCount int64
-	e.RegisterAlertHook(func(_ context.Context, _ QuotaStatus) {
+	e.RegisterAlertHook(func(_ context.Context, _ QuotaStatus) error {
 		atomic.AddInt64(&alertCount, 1)
+		return nil
 	})
 
 	ctx := context.Background()

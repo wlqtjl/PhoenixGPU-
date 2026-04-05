@@ -212,11 +212,17 @@ func (e *RealExecutorWithExec) Execute(ctx context.Context, plan Plan) (*Result,
 			// Critical: if restore failed, unfreeze source
 			if s.state == StateRestoring {
 				log.Error("restore failed — unfreezing source", zap.Error(err))
-				_ = e.exec.ExecInPod(context.Background(), ExecCall{
+				// Use a separate timeout context for best-effort recovery.
+				// The parent ctx may already be cancelled, so we derive from
+				// context.Background() but with an explicit deadline to avoid
+				// unbounded operations.
+				unfreezeCtx, unfreezeCancel := context.WithTimeout(context.Background(), 30*time.Second)
+				_ = e.exec.ExecInPod(unfreezeCtx, ExecCall{
 					Stage: "unfreeze", NodeName: plan.SourceNode,
 					Namespace: plan.JobNamespace, PodName: plan.JobName,
 					Command: "kill -CONT $(pgrep -f python) 2>/dev/null || true",
 				})
+				unfreezeCancel()
 			}
 			return result, err
 		}
