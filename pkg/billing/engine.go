@@ -233,6 +233,7 @@ func (e *Engine) checkQuota(ctx context.Context, r UsageRecord) {
 func (e *Engine) invokeHookWithRetry(ctx context.Context, idx int, hook AlertHook, status QuotaStatus) {
 	const maxRetries = 2
 	for attempt := 0; attempt <= maxRetries; attempt++ {
+		succeeded := false
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
@@ -249,17 +250,18 @@ func (e *Engine) invokeHookWithRetry(ctx context.Context, idx int, hook AlertHoo
 					zap.Error(err))
 				return
 			}
-			// success — no more retries needed; set attempt past max to exit loop
-			attempt = maxRetries + 1
+			succeeded = true
 		}()
-		if attempt > maxRetries {
-			break
-		}
-		// Backoff before retry
-		select {
-		case <-ctx.Done():
+		if succeeded {
 			return
-		case <-time.After(time.Duration(1<<uint(attempt)) * 500 * time.Millisecond): // 500ms, 1s
+		}
+		if attempt < maxRetries {
+			// Backoff before retry
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Duration(1<<uint(attempt)) * 500 * time.Millisecond): // 500ms, 1s
+			}
 		}
 	}
 }
