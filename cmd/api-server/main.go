@@ -66,9 +66,16 @@ func run(o *opts) error {
 		client = internal.NewFakeK8sClient()
 	}
 
-	// Parse auth tokens — CLI flag takes precedence, then env vars
+	// Parse auth tokens.
+	// Precedence: --disable-auth > PHOENIX_AUTH_ENABLED > --auth-tokens > PHOENIX_AUTH_TOKEN
 	authTokens := make(map[string]bool)
-	if !o.disableAuth {
+	if o.disableAuth {
+		// --disable-auth explicitly disables auth regardless of other settings
+		authTokens = nil
+	} else if authEnabled := os.Getenv("PHOENIX_AUTH_ENABLED"); authEnabled == "false" || authEnabled == "0" {
+		// PHOENIX_AUTH_ENABLED=false disables auth via environment
+		authTokens = nil
+	} else {
 		tokenSource := o.authTokens
 		if tokenSource == "" {
 			// Fall back to environment variable
@@ -81,10 +88,6 @@ func run(o *opts) error {
 					authTokens[t] = true
 				}
 			}
-		}
-		// Also check PHOENIX_AUTH_ENABLED env var
-		if authEnabled := os.Getenv("PHOENIX_AUTH_ENABLED"); authEnabled == "false" || authEnabled == "0" {
-			authTokens = nil
 		}
 	}
 

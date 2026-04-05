@@ -259,8 +259,19 @@ func (r *PhoenixHAController) HandleNodeFault(ctx context.Context, event FaultEv
 
 // Shutdown waits for all in-flight restore goroutines to finish.
 // Call this during controller teardown to ensure clean shutdown.
-func (r *PhoenixHAController) Shutdown() {
-	r.restoreWg.Wait()
+// The provided context can enforce a deadline to prevent indefinite blocking.
+func (r *PhoenixHAController) Shutdown(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		r.restoreWg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("shutdown timed out waiting for restore goroutines: %w", ctx.Err())
+	}
 }
 
 // initiateRestore downloads the latest snapshot and restores on a healthy node.
