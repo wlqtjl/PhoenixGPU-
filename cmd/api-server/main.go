@@ -31,6 +31,7 @@ type opts struct {
 	tlsCert         string
 	tlsKey          string
 	authTokens      string
+	disableAuth     bool
 	rateLimitRPS    float64
 }
 
@@ -44,6 +45,7 @@ func main() {
 	flag.StringVar(&o.tlsCert, "tls-cert", "", "Path to TLS certificate file (enables HTTPS)")
 	flag.StringVar(&o.tlsKey, "tls-key", "", "Path to TLS private key file (requires --tls-cert)")
 	flag.StringVar(&o.authTokens, "auth-tokens", "", "Comma-separated list of valid bearer tokens (empty disables auth)")
+	flag.BoolVar(&o.disableAuth, "disable-auth", false, "Explicitly disable authentication (overrides env vars and --auth-tokens)")
 	flag.Float64Var(&o.rateLimitRPS, "rate-limit-rps", 0, "Per-IP rate limit in requests per second (0 disables)")
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
@@ -64,13 +66,27 @@ func run(o *opts) error {
 		client = internal.NewFakeK8sClient()
 	}
 
-	// Parse auth tokens
+	// Parse auth tokens.
+	// Precedence: --disable-auth > PHOENIX_AUTH_ENABLED > --auth-tokens > PHOENIX_AUTH_TOKEN
 	authTokens := make(map[string]bool)
-	if o.authTokens != "" {
-		for _, t := range strings.Split(o.authTokens, ",") {
-			t = strings.TrimSpace(t)
-			if t != "" {
-				authTokens[t] = true
+	if o.disableAuth {
+		// --disable-auth explicitly disables auth regardless of other settings
+		authTokens = nil
+	} else if authEnabled := os.Getenv("PHOENIX_AUTH_ENABLED"); authEnabled == "false" || authEnabled == "0" {
+		// PHOENIX_AUTH_ENABLED=false disables auth via environment
+		authTokens = nil
+	} else {
+		tokenSource := o.authTokens
+		if tokenSource == "" {
+			// Fall back to environment variable
+			tokenSource = os.Getenv("PHOENIX_AUTH_TOKEN")
+		}
+		if tokenSource != "" {
+			for _, t := range strings.Split(tokenSource, ",") {
+				t = strings.TrimSpace(t)
+				if t != "" {
+					authTokens[t] = true
+				}
 			}
 		}
 	}
