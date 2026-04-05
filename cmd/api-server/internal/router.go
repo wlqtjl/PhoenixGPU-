@@ -237,50 +237,6 @@ func (unavailableK8sClient) ResolveAlert(context.Context, string) error {
 	return errors.New("k8s client unavailable")
 }
 
-// ─── Authentication middleware ───────────────────────────────────────────────
-
-// publicPaths are endpoints that do not require authentication (health/readiness probes).
-var publicPaths = map[string]bool{
-	"/healthz":  true,
-	"/readyz":   true,
-	"/metrics":  true,
-}
-
-// withAuth adds bearer token authentication to protected endpoints.
-// If no tokens are configured, authentication is disabled (backward-compatible).
-func withAuth(cfg RouterConfig, next http.Handler) http.Handler {
-	if len(cfg.AuthTokens) == 0 {
-		return next // auth disabled
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip auth for public endpoints
-		if publicPaths[r.URL.Path] {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			errResp(w, http.StatusUnauthorized, "missing Authorization header")
-			return
-		}
-
-		const bearerPrefix = "Bearer "
-		if !strings.HasPrefix(authHeader, bearerPrefix) {
-			errResp(w, http.StatusUnauthorized, "invalid Authorization header format")
-			return
-		}
-
-		token := strings.TrimPrefix(authHeader, bearerPrefix)
-		if !cfg.AuthTokens[token] {
-			errResp(w, http.StatusForbidden, "invalid or expired token")
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
-}
-
 // ─── Rate limiting middleware ────────────────────────────────────────────────
 
 // ipRateLimiter maintains per-IP rate limiters with automatic cleanup of stale entries.

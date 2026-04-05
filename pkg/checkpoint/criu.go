@@ -145,17 +145,38 @@ func validateDir(dir string) error {
 	return nil
 }
 
+// validatePath checks that dir is safe for use with CRIU commands and is
+// within the checkpointer's configured base directory to prevent path traversal.
+func (c *CRIUCheckpointer) validatePath(dir string) error {
+	if err := validateDir(dir); err != nil {
+		return err
+	}
+	// Enforce base directory boundary: resolved dir must be under checkpointDir
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return fmt.Errorf("resolve absolute path %s: %w", dir, err)
+	}
+	baseDir, err := filepath.Abs(c.checkpointDir)
+	if err != nil {
+		return fmt.Errorf("resolve base directory %s: %w", c.checkpointDir, err)
+	}
+	if absDir != baseDir && !strings.HasPrefix(absDir, baseDir+string(filepath.Separator)) {
+		return fmt.Errorf("checkpoint directory %s is outside base directory %s", dir, c.checkpointDir)
+	}
+	return nil
+}
+
 // Dump performs a full checkpoint of the process with GPU context.
 // The process is frozen after dump (use PreDump for live checkpoints).
 func (c *CRIUCheckpointer) Dump(ctx context.Context, pid int, dir string) error {
-	if err := validateDir(dir); err != nil {
+	if err := c.validatePath(dir); err != nil {
 		return fmt.Errorf("invalid checkpoint dir: %w", err)
 	}
 	if pid <= 0 {
 		return fmt.Errorf("invalid pid: %d", pid)
 	}
 
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("mkdir checkpoint dir %s: %w", dir, err)
 	}
 
@@ -218,7 +239,7 @@ func (c *CRIUCheckpointer) Dump(ctx context.Context, pid int, dir string) error 
 // PreDump performs a non-disruptive pre-dump (writes dirty memory pages).
 // Use before Dump to reduce freeze time for large models.
 func (c *CRIUCheckpointer) PreDump(ctx context.Context, pid int, dir string) error {
-	if err := validateDir(dir); err != nil {
+	if err := c.validatePath(dir); err != nil {
 		return fmt.Errorf("invalid pre-dump dir: %w", err)
 	}
 	if pid <= 0 {
@@ -226,7 +247,7 @@ func (c *CRIUCheckpointer) PreDump(ctx context.Context, pid int, dir string) err
 	}
 
 	preDumpDir := filepath.Join(dir, "pre-dump")
-	if err := os.MkdirAll(preDumpDir, 0755); err != nil {
+	if err := os.MkdirAll(preDumpDir, 0750); err != nil {
 		return fmt.Errorf("mkdir pre-dump dir: %w", err)
 	}
 
@@ -253,7 +274,7 @@ func (c *CRIUCheckpointer) PreDump(ctx context.Context, pid int, dir string) err
 // Restore starts a new process from a checkpoint directory.
 // Returns the PID of the restored process.
 func (c *CRIUCheckpointer) Restore(ctx context.Context, dir string) (int, error) {
-	if err := validateDir(dir); err != nil {
+	if err := c.validatePath(dir); err != nil {
 		return 0, fmt.Errorf("invalid restore dir: %w", err)
 	}
 

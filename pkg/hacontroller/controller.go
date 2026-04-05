@@ -69,6 +69,9 @@ type PhoenixHAController struct {
 	// restoreSem is a semaphore channel to limit concurrent restores.
 	restoreSem     chan struct{}
 	restoreSemOnce sync.Once
+
+	// restoreWg tracks in-flight restore goroutines for graceful shutdown.
+	restoreWg sync.WaitGroup
 }
 
 // +kubebuilder:rbac:groups=phoenixgpu.io,resources=phoenixjobs,verbs=get;list;watch;create;update;patch;delete
@@ -227,7 +230,9 @@ func (r *PhoenixHAController) HandleNodeFault(ctx context.Context, event FaultEv
 
 		// Acquire semaphore slot to limit concurrent restores
 		ns, jn := pod.Namespace, jobName
+		r.restoreWg.Add(1)
 		go func() {
+			defer r.restoreWg.Done()
 			defer func() {
 				if rec := recover(); rec != nil {
 					log.Error("panic in restore goroutine",
@@ -250,6 +255,12 @@ func (r *PhoenixHAController) HandleNodeFault(ctx context.Context, event FaultEv
 	if affected == 0 {
 		log.Info("no PhoenixJobs affected by node fault")
 	}
+}
+
+// Shutdown waits for all in-flight restore goroutines to finish.
+// Call this during controller teardown to ensure clean shutdown.
+func (r *PhoenixHAController) Shutdown() {
+	r.restoreWg.Wait()
 }
 
 // initiateRestore downloads the latest snapshot and restores on a healthy node.
