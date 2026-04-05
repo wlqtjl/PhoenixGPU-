@@ -106,7 +106,8 @@ type Engine struct {
 }
 
 // AlertHook is called when a quota soft limit is exceeded.
-type AlertHook func(ctx context.Context, status QuotaStatus)
+// It returns an error so the engine can retry on transient failures.
+type AlertHook func(ctx context.Context, status QuotaStatus) error
 
 // NewEngine creates a billing Engine.
 func NewEngine(store Store, logger *zap.Logger) *Engine {
@@ -175,15 +176,36 @@ func (e *Engine) Record(ctx context.Context, r UsageRecord) error {
 }
 
 // checkQuota evaluates usage against the tenant's quota policy and fires alerts.
+// It retries transient failures with exponential backoff.
 func (e *Engine) checkQuota(ctx context.Context, r UsageRecord) {
 	tenantID := r.Department
 	if tenantID == "" {
 		tenantID = r.Namespace
 	}
 
-	status, err := e.store.GetQuotaStatus(ctx, tenantID, "monthly")
+	// Retry GetQuotaStatus with exponential backoff (3 attempts)
+	var status *QuotaStatus
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		status, err = e.store.GetQuotaStatus(ctx, tenantID, "monthly")
+		if err == nil {
+			break
+		}
+		e.logger.Warn("quota status query failed, retrying",
+			zap.String("tenant", tenantID),
+			zap.Int("attempt", attempt+1),
+			zap.Error(err))
+		select {
+		case <-ctx.Done():
+			e.logger.Error("quota check cancelled",
+				zap.String("tenant", tenantID),
+				zap.Error(ctx.Err()))
+			return
+		case <-time.After(time.Duration(1<<uint(attempt)) * time.Second): // 1s, 2s, 4s
+		}
+	}
 	if err != nil {
-		e.logger.Error("failed to get quota status",
+		e.logger.Error("failed to get quota status after retries",
 			zap.String("tenant", tenantID),
 			zap.Error(err))
 		return
@@ -202,16 +224,44 @@ func (e *Engine) checkQuota(ctx context.Context, r UsageRecord) {
 			zap.String("tenant", tenantID),
 			zap.Float64("usedPct", status.UsedPct))
 		for i, hook := range e.alertHooks {
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						e.logger.Error("alert hook panicked",
-							zap.Int("hookIndex", i),
-							zap.Any("panic", r))
-					}
-				}()
-				hook(ctx, *status)
+			e.invokeHookWithRetry(ctx, i, hook, *status)
+		}
+	}
+}
+
+// invokeHookWithRetry calls an alert hook with panic recovery and retry.
+func (e *Engine) invokeHookWithRetry(ctx context.Context, idx int, hook AlertHook, status QuotaStatus) {
+	const maxRetries = 2
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		succeeded := false
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					e.logger.Error("alert hook panicked",
+						zap.Int("hookIndex", idx),
+						zap.Int("attempt", attempt),
+						zap.Any("panic", r))
+				}
 			}()
+			if err := hook(ctx, status); err != nil {
+				e.logger.Warn("alert hook failed",
+					zap.Int("hookIndex", idx),
+					zap.Int("attempt", attempt),
+					zap.Error(err))
+				return
+			}
+			succeeded = true
+		}()
+		if succeeded {
+			return
+		}
+		if attempt < maxRetries {
+			// Backoff before retry
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Duration(1<<uint(attempt)) * 500 * time.Millisecond): // 500ms, 1s
+			}
 		}
 	}
 }

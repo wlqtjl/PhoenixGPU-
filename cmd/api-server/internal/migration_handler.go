@@ -10,6 +10,7 @@ package internal
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -60,15 +61,18 @@ func (h *migrationHandlers) triggerMigration(c *gin.Context) {
 		zap.String("job", ns+"/"+name),
 		zap.String("target", req.TargetNode))
 
-	// Migration is async — return 202 Accepted immediately
-	// The actual migration runs in a goroutine
+	// Migration is async — return 202 Accepted immediately.
+	// Use a bounded context so the goroutine has a hard deadline even
+	// though the HTTP request is long gone.
 	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
 		plan := migration.Plan{
 			JobNamespace: req.JobNamespace,
 			JobName:      req.JobName,
 			TargetNode:   req.TargetNode,
 		}
-		result, err := h.executor.Execute(context.Background(), plan)
+		result, err := h.executor.Execute(ctx, plan)
 		if err != nil {
 			h.log.Error("live migration failed",
 				zap.String("job", ns+"/"+name),
