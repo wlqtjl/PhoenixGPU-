@@ -1,0 +1,328 @@
+/* JobDetail page */
+
+.page {
+  padding: var(--sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  max-width: 1100px;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ── Not found ───────────────────────────────────────────────── */
+.notFound {
+  padding: var(--sp-12);
+  text-align: center;
+}
+
+.notFoundTitle {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--sp-2);
+}
+
+.notFoundSub {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: var(--sp-4);
+}
+
+.backLink {
+  font-size: 13px;
+  color: var(--amber-bright);
+}
+
+/* ── Breadcrumb ──────────────────────────────────────────────── */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 12px;
+}
+
+.breadLink {
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+.breadLink:hover {
+  color: var(--amber-bright);
+}
+
+.breadSep {
+  color: var(--text-muted);
+}
+
+.breadCurrent {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* ── Header ──────────────────────────────────────────────────── */
+.header {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--r-lg);
+  padding: var(--sp-5) var(--sp-6);
+}
+
+.headerTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+}
+
+.headerLeft {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.jobName {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.jobNs {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.ckptBtn {
+  background: rgba(245,158,11,0.10);
+  border: 1px solid var(--border-amber);
+  border-radius: var(--r-md);
+  color: var(--amber-bright);
+  font-size: 12px;
+  font-weight: 500;
+  padding: var(--sp-2) var(--sp-4);
+  cursor: pointer;
+  transition: background var(--t-fast), box-shadow var(--t-fast);
+}
+
+.ckptBtn:hover {
+  background: rgba(245,158,11,0.20);
+  box-shadow: var(--shadow-amber);
+}
+
+/* ── Stats grid ──────────────────────────────────────────────── */
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--sp-3);
+}
+
+@media (max-width: 1000px) {
+  .statsGrid { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 600px) {
+  .statsGrid { grid-template-columns: repeat(2, 1fr); }
+}
+
+.statBlock {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--r-md);
+  padding: var(--sp-3) var(--sp-4);
+}
+
+.statLabel {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+.statValue {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.statSub {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+/* ── Panel ───────────────────────────────────────────────────── */
+.panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+
+.panelTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.panelBadge {
+  background: var(--bg-overlay);
+  color: var(--text-secondary);
+  border-radius: 99px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 7px;
+}
+
+/* ── Info grid ───────────────────────────────────────────────── */
+.infoGrid {
+  display: flex;
+  flex-direction: column;
+}
+
+.infoRow {
+  display: flex;
+  align-items: center;
+  padding: var(--sp-3) var(--sp-5);
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.infoRow:last-child {
+  border-bottom: none;
+}
+
+.infoLabel {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  min-width: 140px;
+  flex-shrink: 0;
+}
+
+.infoValue {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+/* ── Snapshot empty ──────────────────────────────────────────── */
+.emptySnaps {
+  padding: var(--sp-6);
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ── Timeline ────────────────────────────────────────────────── */
+.timeline {
+  padding: var(--sp-4) var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.timelineItem {
+  display: flex;
+  gap: var(--sp-3);
+  padding: var(--sp-3) 0;
+  position: relative;
+}
+
+/* Vertical line connecting dots */
+.timelineItem::before {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border-mid);
+}
+
+.timelineItem:first-child::before {
+  top: 50%;
+}
+
+.timelineItem:last-child::before {
+  bottom: 50%;
+}
+
+.timelineDot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--amber-bright);
+  border: 2px solid var(--bg-surface);
+  flex-shrink: 0;
+  margin-top: 4px;
+  position: relative;
+  z-index: 1;
+}
+
+.timelineContent {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.snapHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.snapSeq {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--amber-bright);
+}
+
+.snapMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.snapDivider {
+  color: var(--text-muted);
+}
+
+.snapDetail {
+  font-size: 11px;
+  color: var(--text-muted);
+}

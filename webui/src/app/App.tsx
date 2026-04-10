@@ -1,17 +1,21 @@
 // PhoenixGPU WebUI — App Shell
 // Copyright 2025 PhoenixGPU Authors
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
 import { Suspense, lazy } from 'react'
 import '../styles/design-system.css'
 import styles from './App.module.css'
 import { useAlerts, useClusterSummary } from '../api/client'
 
-const Dashboard = lazy(() => import('../pages/Dashboard'))
-const Nodes      = lazy(() => import('../pages/Nodes'))
-const Jobs       = lazy(() => import('../pages/Jobs'))
-const Billing    = lazy(() => import('../pages/Billing'))
-const AlertsPage = lazy(() => import('../pages/Alerts'))
+const Dashboard      = lazy(() => import('../pages/Dashboard'))
+const Nodes          = lazy(() => import('../pages/Nodes'))
+const NodeDetail     = lazy(() => import('../pages/NodeDetail'))
+const Jobs           = lazy(() => import('../pages/Jobs'))
+const JobDetail      = lazy(() => import('../pages/JobDetail'))
+const Billing        = lazy(() => import('../pages/Billing'))
+const BillingRecords = lazy(() => import('../pages/BillingRecords'))
+const AlertsPage     = lazy(() => import('../pages/Alerts'))
+const Settings       = lazy(() => import('../pages/Settings'))
 
 const qc = new QueryClient({
   defaultOptions: { queries: { retry: 2, refetchOnWindowFocus: false } },
@@ -60,6 +64,9 @@ function AppShell() {
 
           <div className={styles.navSection}>Finance</div>
           <NavLink to="/billing" className={navCls}><NavDot />Billing Center</NavLink>
+
+          <div className={styles.navSection}>System</div>
+          <NavLink to="/settings" className={navCls}><NavDot />Settings</NavLink>
         </nav>
 
         <div className={styles.sidebarFooter}>
@@ -80,12 +87,17 @@ function AppShell() {
       <main className={styles.main}>
         <Suspense fallback={<div className={styles.loading}>Loading...</div>}>
           <Routes>
-            <Route path="/"          element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/nodes"     element={<Nodes />} />
-            <Route path="/jobs"      element={<Jobs />} />
-            <Route path="/alerts"    element={<AlertsPage />} />
-            <Route path="/billing"   element={<Billing />} />
+            <Route path="/"                        element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard"               element={<Dashboard />} />
+            <Route path="/nodes"                   element={<Nodes />} />
+            <Route path="/nodes/:name"             element={<NodeDetail />} />
+            <Route path="/jobs"                    element={<Jobs />} />
+            <Route path="/jobs/:namespace/:name"   element={<JobDetail />} />
+            <Route path="/alerts"                  element={<AlertsPage />} />
+            <Route path="/billing"                 element={<Billing />} />
+            <Route path="/billing/records"         element={<BillingRecords />} />
+            <Route path="/billing/records/:department" element={<BillingRecords />} />
+            <Route path="/settings"                element={<Settings />} />
           </Routes>
         </Suspense>
       </main>
@@ -101,14 +113,19 @@ function NavDot() {
 }
 
 function PageTitle() {
-  // Derive page title from URL without useLocation to keep component simple
-  const path = window.location.pathname
+  const location = useLocation()
+  const path = location.pathname
   const titles: Record<string, string> = {
     '/dashboard': 'Dashboard',
     '/nodes':     'GPU Nodes',
     '/jobs':      'PhoenixJobs',
     '/alerts':    'Alerts',
     '/billing':   'Billing Center',
+    '/settings':  'Settings',
   }
+  // Handle sub-pages
+  if (path.startsWith('/nodes/'))               return <div className={styles.pageTitle}>Node Detail</div>
+  if (path.startsWith('/jobs/'))                return <div className={styles.pageTitle}>Job Detail</div>
+  if (path.startsWith('/billing/records'))      return <div className={styles.pageTitle}>Usage Records</div>
   return <div className={styles.pageTitle}>{titles[path] ?? 'PhoenixGPU'}</div>
 }

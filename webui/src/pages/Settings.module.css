@@ -1,0 +1,149 @@
+/* Settings page */
+
+.page {
+  padding: var(--sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  max-width: 1100px;
+}
+
+/* ── Panel ───────────────────────────────────────────────────── */
+.panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+
+.panelTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--border-dim);
+}
+
+/* ── Info rows ───────────────────────────────────────────────── */
+.infoGrid {
+  display: flex;
+  flex-direction: column;
+}
+
+.infoRow {
+  display: flex;
+  align-items: center;
+  padding: var(--sp-3) var(--sp-5);
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.infoRow:last-child {
+  border-bottom: none;
+}
+
+.infoLabel {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  min-width: 160px;
+  flex-shrink: 0;
+}
+
+.infoValue {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+/* ── Feature grid ────────────────────────────────────────────── */
+.featureGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+}
+
+.featureCard {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--r-md);
+  padding: var(--sp-3) var(--sp-4);
+}
+
+.featureHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-1);
+}
+
+.featureName {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.featureDesc {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* ── API endpoints ───────────────────────────────────────────── */
+.endpointList {
+  display: flex;
+  flex-direction: column;
+}
+
+.endpointRow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-5);
+  border-bottom: 1px solid var(--border-dim);
+  font-size: 12px;
+}
+
+.endpointRow:last-child {
+  border-bottom: none;
+}
+
+.method {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  min-width: 42px;
+  text-align: center;
+}
+
+.methodGet {
+  background: rgba(16,185,129,0.15);
+  color: var(--green);
+  border: 1px solid rgba(16,185,129,0.25);
+}
+
+.methodPost {
+  background: rgba(245,158,11,0.15);
+  color: var(--amber-bright);
+  border: 1px solid rgba(245,158,11,0.25);
+}
+
+.endpointPath {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+  min-width: 280px;
+}
+
+.endpointDesc {
+  font-size: 11px;
+  color: var(--text-muted);
+}

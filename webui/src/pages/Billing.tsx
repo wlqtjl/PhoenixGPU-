@@ -1,6 +1,7 @@
 // Billing Center page
 // Copyright 2025 PhoenixGPU Authors
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useBilling, type DeptBilling } from '../api/client'
 import MetricCard from '../components/MetricCard'
 import styles from './Billing.module.css'
@@ -86,7 +87,7 @@ function DeptRow({ dept: d }: { dept: DeptBilling }) {
   const status  = pct >= 90 ? '超限风险' : pct >= 75 ? '注意' : '正常'
 
   return (
-    <div className={styles.deptRow}>
+    <Link to={`/billing/records/${encodeURIComponent(d.department)}`} className={styles.deptRow}>
       <div className={styles.deptName}>{d.department}</div>
       <div className={styles.deptBar}>
         <div className={styles.barLabel}>
@@ -101,6 +102,6 @@ function DeptRow({ dept: d }: { dept: DeptBilling }) {
         <span style={{ fontFamily:'var(--mono)', fontSize:12, color:clr }}>{pct}%</span>
         <span className={`pill ${pillCls}`} style={{marginLeft:6,fontSize:10}}>{status}</span>
       </div>
-    </div>
+    </Link>
   )
 }
