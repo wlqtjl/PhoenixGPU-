@@ -278,7 +278,7 @@ func TestFakeSwapEngine_DoubleSwapOut_Overwrites(t *testing.T) {
 // ── PageSize constant test ────────────────────────────────────────
 
 func TestPageSize_Is2MiB(t *testing.T) {
-	expected := 2 << 20 // 2 * 1024 * 1024 = 2097152
+	expected := 2 << 20 // 2 * 2^20 = 2097152
 	if vgpu.PageSize != expected {
 		t.Errorf("PageSize = %d, want %d (2MiB)", vgpu.PageSize, expected)
 	}

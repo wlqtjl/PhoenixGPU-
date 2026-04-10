@@ -1,5 +1,6 @@
 // Unit tests for migration state machine, Plan validation, and EstimateFreezeWindow.
-// These tests do NOT require build tags since they test pure logic functions.
+// These tests require the migrationfull build tag because the types and functions
+// are defined in files guarded by that tag.
 //
 // Copyright 2025 PhoenixGPU Authors
 // SPDX-License-Identifier: Apache-2.0
