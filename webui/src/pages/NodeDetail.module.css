@@ -1,0 +1,329 @@
+/* NodeDetail page */
+
+.page {
+  padding: var(--sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  max-width: 1200px;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ── Not found ─────────────────────────────────────────────────── */
+.notFound {
+  padding: var(--sp-12);
+  text-align: center;
+}
+
+.notFoundTitle {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--sp-2);
+}
+
+.notFoundSub {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: var(--sp-4);
+}
+
+.backLink {
+  font-size: 13px;
+  color: var(--amber-bright);
+}
+
+/* ── Breadcrumb ────────────────────────────────────────────────── */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 12px;
+}
+
+.breadLink {
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+.breadLink:hover {
+  color: var(--amber-bright);
+}
+
+.breadSep {
+  color: var(--text-muted);
+}
+
+.breadCurrent {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* ── Header ────────────────────────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--r-lg);
+  padding: var(--sp-5) var(--sp-6);
+}
+
+.headerLeft {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.headerRight {
+  flex-shrink: 0;
+}
+
+.nodeName {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.gpuModel {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* ── Metrics grid ──────────────────────────────────────────────── */
+.metricsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-4);
+}
+
+@media (max-width: 900px) {
+  .metricsGrid { grid-template-columns: repeat(2, 1fr); }
+}
+
+.metricBlock {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--r-lg);
+  padding: var(--sp-4) var(--sp-5);
+}
+
+.metricLabel {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: var(--sp-1);
+}
+
+.metricValue {
+  font-family: var(--font-mono);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.metricSub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: var(--sp-1);
+}
+
+/* ── Panel ─────────────────────────────────────────────────────── */
+.panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+
+.panelTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.panelBadge {
+  background: var(--bg-overlay);
+  color: var(--text-secondary);
+  border-radius: 99px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 7px;
+}
+
+/* ── Per-GPU grid ──────────────────────────────────────────────── */
+.gpuGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+}
+
+.gpuCard {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--r-md);
+  padding: var(--sp-3) var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.gpuIdx {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--amber-bright);
+}
+
+.gpuBarRow {
+  display: grid;
+  grid-template-columns: 36px 1fr 40px;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.gpuBarLabel {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.gpuBarBg {
+  height: 5px;
+  background: var(--bg-base);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.gpuBarFill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width var(--t-mid) var(--ease-out);
+}
+
+.gpuBarVal {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.gpuStats {
+  display: flex;
+  gap: var(--sp-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  padding-top: var(--sp-1);
+  border-top: 1px solid var(--border-dim);
+}
+
+/* ── Jobs list ─────────────────────────────────────────────────── */
+.emptyJobs {
+  padding: var(--sp-6);
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.jobList {
+  display: flex;
+  flex-direction: column;
+}
+
+.jobRow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-5);
+  border-bottom: 1px solid var(--border-dim);
+  text-decoration: none;
+  transition: background var(--t-fast) var(--ease-out);
+}
+
+.jobRow:last-child {
+  border-bottom: none;
+}
+
+.jobRow:hover {
+  background: var(--bg-elevated);
+}
+
+.jobName {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 160px;
+}
+
+.jobNs {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 80px;
+}
+
+.jobAlloc {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.jobCkpt {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+/* ── Info grid ─────────────────────────────────────────────────── */
+.infoGrid {
+  display: flex;
+  flex-direction: column;
+}
+
+.infoRow {
+  display: flex;
+  align-items: center;
+  padding: var(--sp-3) var(--sp-5);
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.infoRow:last-child {
+  border-bottom: none;
+}
+
+.infoLabel {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  min-width: 140px;
+}
+
+.infoValue {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+}

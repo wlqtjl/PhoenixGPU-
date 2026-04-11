@@ -110,6 +110,22 @@
   box-shadow: var(--shadow-amber);
 }
 
+.viewLink {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-decoration: none;
+  border: 1px solid var(--border-mid);
+  border-radius: var(--r-sm);
+  padding: 3px 8px;
+  transition: border-color var(--t-fast), color var(--t-fast);
+}
+
+.viewLink:hover {
+  border-color: var(--amber-bright);
+  color: var(--amber-bright);
+}
+
 /* ── Detail panel ────────────────────────────────────────────── */
 .detailPanel {
   background: var(--bg-surface);

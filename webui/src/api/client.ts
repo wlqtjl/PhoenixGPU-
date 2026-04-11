@@ -203,6 +203,23 @@ export function useAlerts() {
   })
 }
 
+export function useRecords(department?: string) {
+  return useQuery({
+    queryKey: QK.records(department),
+    queryFn: () => fetchRecords(department),
+    staleTime: 30_000,
+  })
+}
+
+export function useJob(namespace: string, name: string) {
+  return useQuery({
+    queryKey: QK.job(namespace, name),
+    queryFn: () => fetchJob(namespace, name),
+    staleTime: 8_000,
+    refetchInterval: 10_000,
+  })
+}
+
 export function useUtilHistory(hours: number) {
   return useQuery({
     queryKey: QK.utilHistory(hours),
@@ -235,6 +252,7 @@ export const MOCK: {
   nodes: GPUNode[]
   jobs: PhoenixJob[]
   billing: DeptBilling[]
+  records: UsageRecord[]
   alerts: Alert[]
   utilHistory: TimeSeriesPoint[]
 } = {
@@ -271,19 +289,56 @@ export const MOCK: {
       lastCheckpointDir:'/mnt/snapshots/nlp/rlhf-finetune/ckpt-00008',
       currentPodName:'rlhf-pod', currentNodeName:'gpu-node-01',
       gpuModel:'NVIDIA A100 80GB', allocRatio:0.25, department:'NLP平台组', project:'RLHF微调',
-      startedAt:'2026-03-16T10:00:00Z', snapshots:[] },
+      startedAt:'2026-03-16T10:00:00Z',
+      snapshots: Array.from({length:3}, (_,i) => ({
+        namespace:'nlp', jobName:'rlhf-finetune', seq:6+i,
+        nodeName:'gpu-node-01', podName:'rlhf-pod',
+        gpuModel:'NVIDIA A100 80GB', createdAt:new Date(Date.now()-(2-i)*600_000).toISOString(),
+        durationMS:5400-(i*200), sizeBytes:1_200_000_000+(i*30_000_000),
+      })) },
     { name:'cv-detection-v2', namespace:'cv', phase:'Restoring',
       checkpointCount:12, restoreAttempts:1, lastCheckpointTime:'2026-03-16T22:00:00Z',
       lastCheckpointDir:'/mnt/snapshots/cv/cv-detection-v2/ckpt-00012',
       currentPodName:'cv-pod-new', currentNodeName:'gpu-node-02',
       gpuModel:'NVIDIA A100 40GB', allocRatio:0.5, department:'CV工程组', project:'目标检测2.0',
-      startedAt:'2026-03-15T14:00:00Z', snapshots:[] },
+      startedAt:'2026-03-15T14:00:00Z',
+      snapshots: Array.from({length:4}, (_,i) => ({
+        namespace:'cv', jobName:'cv-detection-v2', seq:9+i,
+        nodeName:'gpu-node-02', podName:'cv-pod-new',
+        gpuModel:'NVIDIA A100 40GB', createdAt:new Date(Date.now()-(3-i)*450_000).toISOString(),
+        durationMS:6100-(i*150), sizeBytes:900_000_000+(i*20_000_000),
+      })) },
     { name:'embedding-eval', namespace:'nlp', phase:'Succeeded',
       checkpointCount:5, restoreAttempts:0, lastCheckpointTime:'2026-03-16T18:00:00Z',
       lastCheckpointDir:'/mnt/snapshots/nlp/embedding-eval/ckpt-00005',
       currentPodName:'', currentNodeName:'',
       gpuModel:'NVIDIA A100 40GB', allocRatio:0.125, department:'NLP平台组', project:'向量检索',
-      startedAt:'2026-03-16T08:00:00Z', snapshots:[] },
+      startedAt:'2026-03-16T08:00:00Z',
+      snapshots: Array.from({length:2}, (_,i) => ({
+        namespace:'nlp', jobName:'embedding-eval', seq:4+i,
+        nodeName:'gpu-node-03', podName:'embedding-eval-pod',
+        gpuModel:'NVIDIA A100 40GB', createdAt:new Date(Date.now()-(1-i)*900_000).toISOString(),
+        durationMS:3200-(i*100), sizeBytes:450_000_000+(i*10_000_000),
+      })) },
+    { name:'speech-asr-train', namespace:'speech', phase:'Running',
+      checkpointCount:16, restoreAttempts:2, lastCheckpointTime:'2026-03-17T01:45:00Z',
+      lastCheckpointDir:'/mnt/snapshots/speech/speech-asr-train/ckpt-00016',
+      currentPodName:'speech-asr-pod', currentNodeName:'gpu-node-03',
+      gpuModel:'NVIDIA A100 40GB', allocRatio:0.25, department:'推理基础设施', project:'语音识别训练',
+      startedAt:'2026-03-13T20:00:00Z',
+      snapshots: Array.from({length:3}, (_,i) => ({
+        namespace:'speech', jobName:'speech-asr-train', seq:14+i,
+        nodeName:'gpu-node-03', podName:'speech-asr-pod',
+        gpuModel:'NVIDIA A100 40GB', createdAt:new Date(Date.now()-(2-i)*500_000).toISOString(),
+        durationMS:4800-(i*120), sizeBytes:680_000_000+(i*15_000_000),
+      })) },
+    { name:'data-etl-gpu', namespace:'data', phase:'Failed',
+      checkpointCount:3, restoreAttempts:3, lastCheckpointTime:'2026-03-16T14:00:00Z',
+      lastCheckpointDir:'/mnt/snapshots/data/data-etl-gpu/ckpt-00003',
+      currentPodName:'', currentNodeName:'',
+      gpuModel:'NVIDIA A100 80GB', allocRatio:0.125, department:'数据工程部', project:'GPU数据清洗',
+      startedAt:'2026-03-16T10:00:00Z',
+      snapshots: [] },
   ],
   billing: [
     { department:'算法研究院', gpuHours:620, tflopsHours:193440, costCNY:21700, quotaHours:800, usedPct:77.5 },
@@ -292,6 +347,36 @@ export const MOCK: {
     { department:'推理基础设施',gpuHours:280, tflopsHours:87360,  costCNY:9800,  quotaHours:400, usedPct:70.0 },
     { department:'数据工程部', gpuHours:150, tflopsHours:24750,  costCNY:1800,  quotaHours:300, usedPct:50.0 },
   ],
+  records: [
+    { namespace:'research', podName:'llm-pretrain-v3-pod', jobName:'llm-pretrain-v3',
+      department:'算法研究院', project:'LLM预训练', gpuModel:'NVIDIA H800', nodeName:'gpu-node-04',
+      allocRatio:0.5, startedAt:'2026-03-14T08:00:00Z', endedAt:'2026-03-17T08:00:00Z',
+      durationHours:72, tflopsHours:35640, costCNY:5040, gpuHours:36 },
+    { namespace:'nlp', podName:'rlhf-pod', jobName:'rlhf-finetune',
+      department:'NLP平台组', project:'RLHF微调', gpuModel:'NVIDIA A100 80GB', nodeName:'gpu-node-01',
+      allocRatio:0.25, startedAt:'2026-03-16T10:00:00Z', endedAt:'2026-03-17T02:00:00Z',
+      durationHours:16, tflopsHours:1248, costCNY:560, gpuHours:4 },
+    { namespace:'cv', podName:'cv-pod-new', jobName:'cv-detection-v2',
+      department:'CV工程组', project:'目标检测2.0', gpuModel:'NVIDIA A100 40GB', nodeName:'gpu-node-02',
+      allocRatio:0.5, startedAt:'2026-03-15T14:00:00Z', endedAt:'2026-03-17T00:00:00Z',
+      durationHours:34, tflopsHours:5304, costCNY:2380, gpuHours:17 },
+    { namespace:'nlp', podName:'embedding-eval-pod', jobName:'embedding-eval',
+      department:'NLP平台组', project:'向量检索', gpuModel:'NVIDIA A100 40GB', nodeName:'gpu-node-03',
+      allocRatio:0.125, startedAt:'2026-03-16T08:00:00Z', endedAt:'2026-03-16T18:00:00Z',
+      durationHours:10, tflopsHours:390, costCNY:175, gpuHours:1.25 },
+    { namespace:'speech', podName:'speech-asr-pod', jobName:'speech-asr-train',
+      department:'推理基础设施', project:'语音识别训练', gpuModel:'NVIDIA A100 40GB', nodeName:'gpu-node-03',
+      allocRatio:0.25, startedAt:'2026-03-13T20:00:00Z', endedAt:'2026-03-17T02:00:00Z',
+      durationHours:78, tflopsHours:6084, costCNY:2730, gpuHours:19.5 },
+    { namespace:'data', podName:'data-etl-pod', jobName:'data-etl-gpu',
+      department:'数据工程部', project:'GPU数据清洗', gpuModel:'NVIDIA A100 80GB', nodeName:'gpu-node-01',
+      allocRatio:0.125, startedAt:'2026-03-16T10:00:00Z', endedAt:'2026-03-16T14:00:00Z',
+      durationHours:4, tflopsHours:156, costCNY:70, gpuHours:0.5 },
+    { namespace:'research', podName:'llm-eval-pod', jobName:'llm-eval-bench',
+      department:'算法研究院', project:'模型评测', gpuModel:'NVIDIA A100 80GB', nodeName:'gpu-node-02',
+      allocRatio:0.25, startedAt:'2026-03-15T06:00:00Z', endedAt:'2026-03-16T06:00:00Z',
+      durationHours:24, tflopsHours:1872, costCNY:840, gpuHours:6 },
+  ],
   alerts: [
     { id:'a1', severity:'error', tenant:'算法研究院',
       message:'月度配额已用 93%，预计 48h 内超限', createdAt:'2026-03-17T01:00:00Z', resolved:false },
@@ -299,9 +384,71 @@ export const MOCK: {
       message:'任务 Restore 失败 1 次，正在第 2 次重试', createdAt:'2026-03-17T00:30:00Z', resolved:false },
     { id:'a3', severity:'warn', tenant:'gpu-node-03',
       message:'GPU 温度 64°C，接近告警阈值 70°C', createdAt:'2026-03-16T23:00:00Z', resolved:false },
+    { id:'a4', severity:'info', tenant:'nlp/rlhf-finetune',
+      message:'Checkpoint #8 完成，大小 1.2GB，耗时 5.4s', createdAt:'2026-03-17T02:10:00Z', resolved:false },
+    { id:'a5', severity:'error', tenant:'data-etl-gpu',
+      message:'任务 OOM 崩溃，Restore 3 次失败已标记 Failed', createdAt:'2026-03-16T14:00:00Z', resolved:false },
+    { id:'a6', severity:'info', tenant:'gpu-node-04',
+      message:'H800 驱动版本 535.129.03 检测正常', createdAt:'2026-03-16T12:00:00Z', resolved:true },
+    { id:'a7', severity:'warn', tenant:'推理基础设施',
+      message:'部门月度配额使用 70%，当前速率下 5 天后耗尽', createdAt:'2026-03-16T20:00:00Z', resolved:false },
   ],
   utilHistory: Array.from({length:48}, (_, i) => ({
     ts: new Date(Date.now() - (47-i)*30*60_000).toISOString(),
     value: 55 + Math.sin(i*0.3)*18 + Math.random()*8,
   })),
+}
+
+// ── Mock mode: intercept all fetches with mock data ────────────
+
+const IS_MOCK = import.meta.env.VITE_MOCK === 'true'
+
+if (IS_MOCK) {
+  // Wrap api instance to return mock data instead of making real HTTP calls
+  const mockDelay = () => new Promise(r => setTimeout(r, 80 + Math.random() * 120))
+
+  const originalGet = api.get.bind(api)
+  const originalPost = api.post.bind(api)
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  api.get = (async (url: string, config?: { params?: Record<string, string> }): Promise<any> => {
+    await mockDelay()
+    if (url === '/cluster/summary')              return { data: MOCK.summary }
+    if (url === '/nodes')                        return { data: MOCK.nodes }
+    if (url === '/jobs') {
+      const ns = config?.params?.namespace
+      return { data: ns ? MOCK.jobs.filter(j => j.namespace === ns) : MOCK.jobs }
+    }
+    if (url.startsWith('/jobs/')) {
+      const parts = url.split('/')
+      const ns = parts[2]; const name = parts[3]
+      const job = MOCK.jobs.find(j => j.namespace === ns && j.name === name)
+      if (job) return { data: job }
+      throw { response: { status: 404, data: { message: 'Job not found' } } }
+    }
+    if (url === '/billing/departments')          return { data: MOCK.billing }
+    if (url === '/billing/records') {
+      const dept = config?.params?.department
+      return { data: dept ? MOCK.records.filter(r => r.department === dept) : MOCK.records }
+    }
+    if (url === '/alerts')                       return { data: MOCK.alerts }
+    if (url === '/cluster/utilization-history')   return { data: MOCK.utilHistory }
+    // Fallback to real request
+    return originalGet(url, config)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  }) as any
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  api.post = (async (url: string): Promise<any> => {
+    await mockDelay()
+    if (url.includes('/checkpoint'))             return { data: {} }
+    if (url.includes('/resolve')) {
+      const id = url.split('/')[2]
+      const alert = MOCK.alerts.find(a => a.id === id)
+      if (alert) alert.resolved = true
+      return { data: {} }
+    }
+    return originalPost(url)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  }) as any
 }

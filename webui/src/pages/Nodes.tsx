@@ -1,5 +1,6 @@
 // GPU Nodes page — per-node GPU metrics dashboard
 // Copyright 2025 PhoenixGPU Authors
+import { Link } from 'react-router-dom'
 import { useNodes, type GPUNode } from '../api/client'
 import styles from './Nodes.module.css'
 
@@ -56,7 +57,11 @@ export default function Nodes() {
 
       {/* Node cards */}
       <div className={styles.grid}>
-        {nodes.map(node => <NodeCard key={node.name} node={node} />)}
+        {nodes.map(node => (
+          <Link key={node.name} to={`/nodes/${node.name}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+            <NodeCard node={node} />
+          </Link>
+        ))}
       </div>
 
       {nodes.length === 0 && (

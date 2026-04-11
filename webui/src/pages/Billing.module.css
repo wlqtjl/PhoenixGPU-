@@ -95,6 +95,9 @@
   padding: var(--sp-4) var(--sp-5);
   border-bottom: 1px solid var(--border-dim);
   transition: background var(--t-fast) var(--ease-out);
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
 }
 
 .deptRow:last-child {

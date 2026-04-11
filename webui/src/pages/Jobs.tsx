@@ -1,6 +1,7 @@
 // Jobs page — PhoenixJob list + checkpoint visualization
 // Copyright 2025 PhoenixGPU Authors
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useJobs, useTriggerCheckpoint, type PhoenixJob, type Phase } from '../api/client'
 import styles from './Jobs.module.css'
 
@@ -73,16 +74,24 @@ export default function Jobs() {
                 <td className={styles.dimCell}>{fmtRelTime(job.lastCheckpointTime)}</td>
                 <td className={styles.monoCell}>{job.currentNodeName || '—'}</td>
                 <td>
-                  {job.phase === 'Running' && (
-                    <button
-                      className={styles.ckptBtn}
-                      onClick={e => {
-                        e.stopPropagation()
-                        trigger.mutate({ namespace: job.namespace, name: job.name })
-                      }}>
-                      Checkpoint
-                    </button>
-                  )}
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <Link
+                      to={`/jobs/${job.namespace}/${job.name}`}
+                      className={styles.viewLink}
+                      onClick={e => e.stopPropagation()}>
+                      Detail
+                    </Link>
+                    {job.phase === 'Running' && (
+                      <button
+                        className={styles.ckptBtn}
+                        onClick={e => {
+                          e.stopPropagation()
+                          trigger.mutate({ namespace: job.namespace, name: job.name })
+                        }}>
+                        Checkpoint
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
